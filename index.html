@@ -4688,24 +4688,32 @@ function SAPage({groups,rows,ciaEntries,showIndicators,setShowIndicators,adkarDo
   const [bootstrapLoading,setBootstrapLoading]=React.useState(false);
   const [bootstrapError,setBootstrapError]=React.useState("");
   const [bootstrapDrafts,setBootstrapDrafts]=React.useState([]);
+  const [bootstrapExcluded,setBootstrapExcluded]=React.useState([]);
 
   const runBootstrapAi=async()=>{
     setBootstrapLoading(true);setBootstrapError("");setBootstrapDrafts([]);
-    const prompt=`You are an expert OCM strategist. Based on the project context below, identify the key stakeholder groups that would be affected by this change initiative.
+    const prompt=`You are an expert OCM strategist. Based on the project context below, identify the stakeholder groups who are CHANGE RECIPIENTS — people who will need to change how they work, what tools they use, what behaviors they demonstrate, or what processes they follow as a result of this initiative.
 
 PROJECT CONTEXT:
 ${bootstrapContext.slice(0,4000)}
 
-For each stakeholder group, return a JSON object. Return ONLY valid JSON, no markdown, no explanation.
+CRITICAL DISTINCTION:
+- Change recipients = groups who must adopt new behaviors, tools, processes, or ways of working. These belong in the stakeholder assessment.
+- Change agents / delivery roles = project team members, trainers, comms leads, IT implementers, GRC specialists, OCM practitioners, steering committees. These are delivering the change, not receiving it. Do NOT include them as assessment groups.
 
-{"groups":[{"name":"group name","department":"department or function if identifiable","stakeholderType":"Direct or Indirect or External","disposition":"Supportive or Neutral or Resistant or Unknown","rationale":"1-2 sentences explaining why this group is affected and what their likely change experience will be"}]}
+If you identify any delivery or project roles in the context, list them separately in the "excludedRoles" array with a brief note explaining why they were excluded.
+
+Return ONLY valid JSON, no markdown, no explanation:
+
+{"groups":[{"name":"group name","department":"department or function if identifiable","stakeholderType":"Direct or Indirect or External","disposition":"Supportive or Neutral or Resistant or Unknown","rationale":"1-2 sentences describing specifically what is changing for this group and what adoption challenge they face"}],"excludedRoles":[{"name":"role or group name","reason":"brief explanation of why this is a delivery role, not a change recipient"}]}
 
 Rules:
-- Identify 3-8 meaningful stakeholder groups based on the context
-- Use specific group names where possible (e.g. "Finance Controllers" not just "Finance")
-- Only include groups genuinely affected by this change
+- Focus on who must change, not who is involved
+- The rationale must describe a specific behavior, tool, or process change this group faces — not just that they are "affected"
+- Use specific group names where possible (e.g. "Branch Operations Staff" not just "Operations")
 - stakeholderType must be exactly: Direct, Indirect, or External
-- disposition must be exactly: Supportive, Neutral, Resistant, or Unknown`;
+- disposition must be exactly: Supportive, Neutral, Resistant, or Unknown
+- If no delivery roles are identified, return an empty array for excludedRoles`;
     try{
       const res=await fetch("/api/claude",{
         method:"POST",
@@ -4724,6 +4732,7 @@ Rules:
       const parsed=JSON.parse(raw);
       const drafts=(parsed.groups||[]).map((g,i)=>({...g,_draftId:`bootstrap_${i}`,accepted:false,dismissed:false}));
       setBootstrapDrafts(drafts);
+      setBootstrapExcluded(parsed.excludedRoles||[]);
     }catch(e){
       setBootstrapError("Generation failed: "+e.message);
     }
@@ -5069,14 +5078,33 @@ Keep responses concise and actionable. Format with clear sections.`;
                       </div>
                     );
                   })}
+                  {bootstrapExcluded.length>0&&(
+                    <div style={{background:"var(--off2)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px"}}>
+                      <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)",marginBottom:8}}>
+                        DELIVERY ROLES — excluded from assessment
+                      </div>
+                      <div style={{fontSize:11,color:"var(--slate)",lineHeight:1.55,marginBottom:8}}>
+                        The following groups appear to be involved in delivering this change rather than receiving it, and have been excluded from the stakeholder assessment:
+                      </div>
+                      {bootstrapExcluded.map((r,i)=>(
+                        <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:i<bootstrapExcluded.length-1?6:0}}>
+                          <span style={{fontFamily:"var(--mono)",fontSize:11,fontWeight:900,color:"var(--slate)",flexShrink:0,minWidth:8}}>–</span>
+                          <div>
+                            <span style={{fontSize:12,fontWeight:700,color:"var(--navy)"}}>{r.name}</span>
+                            {r.reason&&<span style={{fontSize:11,color:"var(--slate2)",marginLeft:6}}>{r.reason}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {bootstrapDrafts.every(d=>d.accepted||d.dismissed)&&(
                     <div style={{display:"flex",gap:8,paddingTop:4}}>
                       <button className="btn btn-ghost" style={{fontSize:12}}
-                        onClick={()=>{setBootstrapDrafts([]);setBootstrapContext("");}}>
+                        onClick={()=>{setBootstrapDrafts([]);setBootstrapContext("");setBootstrapExcluded([]);}}>
                         ↺ Generate more
                       </button>
                       <button className="btn btn-ghost" style={{fontSize:12}}
-                        onClick={()=>{setBootstrapDrafts([]);setBootstrapContext("");setShowBootstrap(false);}}>
+                        onClick={()=>{setBootstrapDrafts([]);setBootstrapContext("");setBootstrapExcluded([]);setShowBootstrap(false);}}>
                         Done
                       </button>
                     </div>
