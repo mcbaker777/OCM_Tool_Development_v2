@@ -4674,6 +4674,14 @@ function SAPage({groups,rows,ciaEntries,showIndicators,setShowIndicators,adkarDo
 
   const [showAiPreflight,setShowAiPreflight]=React.useState(false);
   const [showBootstrap,setShowBootstrap]=React.useState(false);
+  const [addGroupMenuOpen,setAddGroupMenuOpen]=React.useState(false);
+  const addGroupMenuRef=useRef(null);
+  useEffect(()=>{
+    if(!addGroupMenuOpen) return;
+    const handler=(e)=>{ if(addGroupMenuRef.current&&!addGroupMenuRef.current.contains(e.target)) setAddGroupMenuOpen(false); };
+    document.addEventListener("mousedown",handler);
+    return()=>document.removeEventListener("mousedown",handler);
+  },[addGroupMenuOpen]);
 
   // ── Bootstrap AI ──
   const [bootstrapContext,setBootstrapContext]=React.useState("");
@@ -4722,12 +4730,15 @@ Rules:
     setBootstrapLoading(false);
   };
 
-  // ── Single-group Enrich AI ──
+  // ── Single-group Enrich/Update AI ──
   const [enrichLoading,setEnrichLoading]=React.useState(false);
   const [enrichError,setEnrichError]=React.useState("");
   const [enrichDraft,setEnrichDraft]=React.useState(null);
+  const [drawerAiMode,setDrawerAiMode]=React.useState("enrich"); // "enrich" | "update"
+  const [showDrawerUpdateInput,setShowDrawerUpdateInput]=React.useState(false);
+  const [drawerUpdateContext,setDrawerUpdateContext]=React.useState("");
 
-  const runEnrichGroup=async(groupId)=>{
+  const runEnrichGroup=async(groupId, extraContext="")=>{
     const g=groups.find(x=>x.id===groupId);
     const row=rows.find(r=>r.groupId===groupId)||{};
     if(!g) return;
@@ -4749,6 +4760,7 @@ ENGAGEMENT STRATEGY: ${row.engagementStrategy||"not set"}
 
 CHANGE IMPACTS AFFECTING THIS PROJECT:
 ${projectContext}
+${extraContext.trim()?`\nADDITIONAL CONTEXT PROVIDED BY PRACTITIONER:\n${extraContext.slice(0,3000)}`:""}
 
 Return ONLY valid JSON — no markdown, no explanation:
 {"awareness":"High or Medium or Low or leave blank if unclear","desire":"High or Medium or Low or leave blank","knowledge":"High or Medium or Low or leave blank","ability":"High or Medium or Low or leave blank","reinforcement":"High or Medium or Low or leave blank","barriersToChange":"suggested text or empty string if already filled","wiifm":"suggested text or empty string if already filled","resistanceNotes":"suggested text or empty string if already filled","engagementStrategy":"suggested text or empty string if already filled","rationale":"2-3 sentences explaining the overall readiness picture for this group and key recommendations"}
@@ -4861,23 +4873,38 @@ Keep responses concise and actionable. Format with clear sections.`;
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"flex-start",flexShrink:0,flexWrap:"wrap"}}>
+          {/* Update with AI — module-level analysis */}
           <button className="btn btn-ghost" style={{fontSize:12,padding:"7px 14px",display:"flex",alignItems:"center",gap:6,
             borderColor:groups.length===0?"var(--border)":"#c96a3a",
             color:groups.length===0?"var(--slate2)":"#c96a3a",
             opacity:groups.length===0?0.5:1,
             cursor:groups.length===0?"not-allowed":"pointer"}}
+            title={groups.length===0?"Add groups first to use Update with AI":"Analyze all groups and generate a readiness report"}
             onClick={()=>{ if(groups.length===0) return; setShowAiPreflight(true); }} disabled={aiLoading}>
             {aiLoading?<span style={{width:11,height:11,border:"2px solid #c96a3a33",borderTopColor:"#c96a3a",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>:"✦"}
             {aiLoading?"Analyzing…":"Update with AI"}
           </button>
-          <button className="btn btn-ghost" style={{fontSize:12,padding:"7px 14px",display:"flex",alignItems:"center",gap:6,
-            borderColor:"#5a8a70",color:"#5a8a70",
-            background:showBootstrap?"#f0f7f2":"transparent"}}
-            onClick={()=>setShowBootstrap(v=>!v)}>
-            ✦ Generate Groups
-          </button>
-          <button className="btn btn-primary" style={{fontSize:13,padding:"8px 16px"}}
-            onClick={()=>setAdding(true)}>+ Add Group</button>
+
+          {/* Add Group — split button with dropdown */}
+          <div style={{position:"relative",display:"inline-flex"}}>
+            <button className="btn btn-primary" style={{fontSize:13,padding:"8px 14px",borderRadius:"999px 0 0 999px",borderRight:"1px solid rgba(255,255,255,.25)"}}
+              onClick={()=>setAdding(true)}>+ Add Group</button>
+            <button className="btn btn-primary" style={{fontSize:12,padding:"8px 10px",borderRadius:"0 999px 999px 0",minWidth:0}}
+              onClick={()=>setAddGroupMenuOpen(v=>!v)}
+              title="Add groups using AI">▾</button>
+            {addGroupMenuOpen&&(
+              <div className="menu" style={{top:38,right:0,minWidth:220}} ref={addGroupMenuRef}>
+                <button onClick={()=>{setAdding(true);setAddGroupMenuOpen(false);}}>
+                  <div style={{fontWeight:900,fontSize:13}}>✏ Add manually</div>
+                  <div style={{fontSize:11,color:"var(--slate2)",fontWeight:400,marginTop:2}}>Type a group name directly</div>
+                </button>
+                <button onClick={()=>{setShowBootstrap(v=>!v);setAddGroupMenuOpen(false);}}>
+                  <div style={{fontWeight:900,fontSize:13}}>✦ Generate with AI</div>
+                  <div style={{fontSize:11,color:"var(--slate2)",fontWeight:400,marginTop:2}}>Paste context and draft groups automatically</div>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -5244,27 +5271,58 @@ Keep responses concise and actionable. Format with clear sections.`;
 
             <div className="detailSlideBody">
 
-              {/* ── Enrich with AI ── */}
-              <div style={{background:"var(--off)",borderRadius:10,padding:"12px 14px",border:"1px solid var(--border)"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:enrichDraft||enrichError?10:0}}>
-                  <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,color:"#c96a3a",letterSpacing:".08em"}}>✦ ENRICH WITH AI</div>
-                  <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 12px",borderColor:"#c96a3a",color:"#c96a3a",display:"flex",alignItems:"center",gap:6}}
-                    onClick={()=>runEnrichGroup(activeId)} disabled={enrichLoading}>
-                    {enrichLoading
-                      ?<><span style={{width:10,height:10,border:"2px solid #c96a3a33",borderTopColor:"#c96a3a",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Analyzing…</>
-                      :"Suggest fields"}
-                  </button>
+              {/* ── AI assistance panel ── */}
+              <div style={{background:"var(--off)",borderRadius:10,padding:"12px 14px",border:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,color:"#c96a3a",letterSpacing:".08em"}}>✦ AI ASSISTANCE</div>
+
+                {/* Two options side by side */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  {/* Enrich with AI */}
+                  <div style={{background:"var(--white)",borderRadius:8,padding:"10px 12px",border:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:6}}>
+                    <div style={{fontSize:12,fontWeight:900,color:"var(--navy)"}}>Enrich with AI</div>
+                    <div style={{fontSize:11,color:"var(--slate2)",lineHeight:1.5,flex:1}}>Uses existing profile data and CIA entries to suggest ADKAR ratings and field content. No additional input needed.</div>
+                    <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 10px",borderColor:"#c96a3a",color:"#c96a3a",display:"flex",alignItems:"center",gap:5,justifyContent:"center"}}
+                      onClick={()=>{ setDrawerAiMode("enrich"); setEnrichDraft(null); setEnrichError(""); runEnrichGroup(activeId); }} disabled={enrichLoading&&drawerAiMode==="enrich"}>
+                      {enrichLoading&&drawerAiMode==="enrich"
+                        ?<><span style={{width:10,height:10,border:"2px solid #c96a3a33",borderTopColor:"#c96a3a",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Working…</>
+                        :"✦ Enrich with AI"}
+                    </button>
+                  </div>
+
+                  {/* Update with AI */}
+                  <div style={{background:"var(--white)",borderRadius:8,padding:"10px 12px",border:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:6}}>
+                    <div style={{fontSize:12,fontWeight:900,color:"var(--navy)"}}>Update with AI</div>
+                    <div style={{fontSize:11,color:"var(--slate2)",lineHeight:1.5,flex:1}}>Paste interview notes, a meeting transcript, or any specific information about this group for higher-fidelity suggestions.</div>
+                    <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 10px",borderColor:"#c96a3a",color:"#c96a3a",display:"flex",alignItems:"center",gap:5,justifyContent:"center"}}
+                      onClick={()=>{ setDrawerAiMode("update"); setEnrichDraft(null); setEnrichError(""); setShowDrawerUpdateInput(v=>!v); }} disabled={enrichLoading&&drawerAiMode==="update"}>
+                      ✦ Update with AI
+                    </button>
+                  </div>
                 </div>
-                {!enrichDraft&&!enrichError&&(
-                  <div style={{fontSize:11,color:"var(--slate2)",lineHeight:1.55,marginTop:6}}>
-                    Suggest ADKAR ratings, barriers, WIIFM, and engagement strategy based on this group's profile and the project's change impacts.
+
+                {/* Update with AI context input */}
+                {showDrawerUpdateInput&&drawerAiMode==="update"&&(
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    <textarea className="inp" style={{width:"100%",minHeight:88,fontSize:12,padding:"8px 10px",lineHeight:1.6,resize:"vertical"}}
+                      value={drawerUpdateContext} onChange={e=>setDrawerUpdateContext(e.target.value)}
+                      placeholder="Paste interview notes, survey results, meeting transcript, or any specific information about this group…"/>
+                    <button className="btn btn-primary" style={{fontSize:11,padding:"6px 16px",alignSelf:"flex-start",display:"flex",alignItems:"center",gap:6}}
+                      onClick={()=>runEnrichGroup(activeId,drawerUpdateContext)} disabled={enrichLoading||!drawerUpdateContext.trim()}>
+                      {enrichLoading&&drawerAiMode==="update"
+                        ?<><span style={{width:10,height:10,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Working…</>
+                        :"✦ Generate suggestions"}
+                    </button>
                   </div>
                 )}
+
+                {/* Error */}
                 {enrichError&&(
                   <div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"8px 10px"}}>
                     {enrichError}
                   </div>
                 )}
+
+                {/* Draft output — shared by both modes */}
                 {enrichDraft&&enrichDraft.groupId===activeId&&(()=>{
                   const ADKAR_KEYS=["awareness","desire","knowledge","ability","reinforcement"];
                   const ADKAR_LABELS={awareness:"Awareness",desire:"Desire",knowledge:"Knowledge",ability:"Ability",reinforcement:"Reinforcement"};
@@ -5278,7 +5336,8 @@ Keep responses concise and actionable. Format with clear sections.`;
                   ].filter(({k})=>enrichDraft[k]);
                   const adkarSuggestions=ADKAR_KEYS.filter(k=>enrichDraft[k]);
                   return(
-                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    <div style={{display:"flex",flexDirection:"column",gap:10,borderTop:"1px solid var(--border)",paddingTop:10}}>
+                      <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em"}}>SUGGESTIONS — review before applying</div>
                       {enrichDraft.rationale&&(
                         <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.6,background:"var(--white)",borderRadius:8,padding:"9px 11px",borderLeft:"3px solid #c96a3a"}}>
                           {enrichDraft.rationale}
@@ -5286,7 +5345,7 @@ Keep responses concise and actionable. Format with clear sections.`;
                       )}
                       {adkarSuggestions.length>0&&(
                         <div>
-                          <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",marginBottom:6}}>SUGGESTED ADKAR RATINGS</div>
+                          <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",marginBottom:6}}>ADKAR RATINGS</div>
                           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                             {adkarSuggestions.map(k=>(
                               <span key={k} style={{fontSize:11,fontWeight:900,fontFamily:"var(--mono)",
@@ -5300,7 +5359,7 @@ Keep responses concise and actionable. Format with clear sections.`;
                       )}
                       {textFields.length>0&&(
                         <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                          <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em"}}>SUGGESTED TEXT FIELDS</div>
+                          <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em"}}>TEXT FIELDS</div>
                           {textFields.map(({k,l})=>(
                             <div key={k} style={{background:"var(--white)",borderRadius:8,padding:"8px 10px",border:"1px solid var(--border)"}}>
                               <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",marginBottom:3}}>{l.toUpperCase()}</div>
@@ -5309,13 +5368,13 @@ Keep responses concise and actionable. Format with clear sections.`;
                           ))}
                         </div>
                       )}
-                      <div style={{display:"flex",gap:8,paddingTop:4}}>
+                      <div style={{display:"flex",gap:8}}>
                         <button className="btn btn-primary" style={{fontSize:11,padding:"6px 14px"}}
                           onClick={()=>applyEnrichDraft(activeId,enrichDraft)}>
                           ✓ Apply suggestions
                         </button>
                         <button className="btn btn-ghost" style={{fontSize:11,padding:"6px 12px"}}
-                          onClick={()=>{setEnrichDraft(null);setEnrichError("");}}>
+                          onClick={()=>{setEnrichDraft(null);setEnrichError("");setShowDrawerUpdateInput(false);setDrawerUpdateContext("");}}>
                           Dismiss
                         </button>
                       </div>
