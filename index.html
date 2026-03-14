@@ -4674,6 +4674,121 @@ function SAPage({groups,rows,ciaEntries,showIndicators,setShowIndicators,adkarDo
 
   const [showAiPreflight,setShowAiPreflight]=React.useState(false);
 
+  // ── Bootstrap AI (empty state) ──
+  const [bootstrapContext,setBootstrapContext]=React.useState("");
+  const [bootstrapLoading,setBootstrapLoading]=React.useState(false);
+  const [bootstrapError,setBootstrapError]=React.useState("");
+  const [bootstrapDrafts,setBootstrapDrafts]=React.useState([]);
+
+  const runBootstrapAi=async()=>{
+    setBootstrapLoading(true);setBootstrapError("");setBootstrapDrafts([]);
+    const prompt=`You are an expert OCM strategist. Based on the project context below, identify the key stakeholder groups that would be affected by this change initiative.
+
+PROJECT CONTEXT:
+${bootstrapContext.slice(0,4000)}
+
+For each stakeholder group, return a JSON object. Return ONLY valid JSON, no markdown, no explanation.
+
+{"groups":[{"name":"group name","department":"department or function if identifiable","stakeholderType":"Direct or Indirect or External","disposition":"Supportive or Neutral or Resistant or Unknown","rationale":"1-2 sentences explaining why this group is affected and what their likely change experience will be"}]}
+
+Rules:
+- Identify 3-8 meaningful stakeholder groups based on the context
+- Use specific group names where possible (e.g. "Finance Controllers" not just "Finance")
+- Only include groups genuinely affected by this change
+- stakeholderType must be exactly: Direct, Indirect, or External
+- disposition must be exactly: Supportive, Neutral, Resistant, or Unknown`;
+    try{
+      const res=await fetch("/api/claude",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-5",
+          max_tokens:2000,
+          system:"You are an expert OCM strategist. Return ONLY valid JSON — no markdown, no explanation, no backticks.",
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e?.error||`HTTP ${res.status}`);}
+      const data=await res.json();
+      const raw=(data.content||[]).map(c=>c.text||"").join("").trim()
+        .replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
+      const parsed=JSON.parse(raw);
+      const drafts=(parsed.groups||[]).map((g,i)=>({...g,_draftId:`bootstrap_${i}`,accepted:false,dismissed:false}));
+      setBootstrapDrafts(drafts);
+    }catch(e){
+      setBootstrapError("Generation failed: "+e.message);
+    }
+    setBootstrapLoading(false);
+  };
+
+  // ── Single-group Enrich AI ──
+  const [enrichLoading,setEnrichLoading]=React.useState(false);
+  const [enrichError,setEnrichError]=React.useState("");
+  const [enrichDraft,setEnrichDraft]=React.useState(null);
+
+  const runEnrichGroup=async(groupId)=>{
+    const g=groups.find(x=>x.id===groupId);
+    const row=rows.find(r=>r.groupId===groupId)||{};
+    if(!g) return;
+    setEnrichLoading(true);setEnrichError("");setEnrichDraft(null);
+    const projectContext=ciaEntries.map(e=>`${e.title||e.id}: ${e.description} (${e.magnitude})`).join("\n")||"No CIA entries logged.";
+    const prompt=`You are an expert OCM strategist. Enrich the stakeholder group profile below by suggesting content for any fields that are empty or sparse.
+
+GROUP NAME: ${g.name}
+DEPARTMENT: ${g.department||"not set"}
+TYPE: ${g.stakeholderType||"not set"}
+IMPACT LEVEL: ${g.impactLevel||"not set"}/5
+INFLUENCE: ${g.influence||"not set"}/5
+DISPOSITION: ${g.disposition||"not set"}
+ADKAR — Awareness: ${row.awareness||"not set"}, Desire: ${row.desire||"not set"}, Knowledge: ${row.knowledge||"not set"}, Ability: ${row.ability||"not set"}, Reinforcement: ${row.reinforcement||"not set"}
+BARRIERS: ${row.barriersToChange||"not set"}
+WIIFM: ${row.wiifm||"not set"}
+RESISTANCE NOTES: ${row.resistanceNotes||"not set"}
+ENGAGEMENT STRATEGY: ${row.engagementStrategy||"not set"}
+
+CHANGE IMPACTS AFFECTING THIS PROJECT:
+${projectContext}
+
+Return ONLY valid JSON — no markdown, no explanation:
+{"awareness":"High or Medium or Low or leave blank if unclear","desire":"High or Medium or Low or leave blank","knowledge":"High or Medium or Low or leave blank","ability":"High or Medium or Low or leave blank","reinforcement":"High or Medium or Low or leave blank","barriersToChange":"suggested text or empty string if already filled","wiifm":"suggested text or empty string if already filled","resistanceNotes":"suggested text or empty string if already filled","engagementStrategy":"suggested text or empty string if already filled","rationale":"2-3 sentences explaining the overall readiness picture for this group and key recommendations"}
+
+Rules:
+- Only suggest ADKAR values where the change impacts and group profile genuinely support a judgment
+- Do not overwrite fields that already have substantive content — return an empty string for those
+- Base suggestions on the change impacts and group characteristics above`;
+    try{
+      const res=await fetch("/api/claude",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-5",
+          max_tokens:1200,
+          system:"You are an expert OCM strategist. Return ONLY valid JSON — no markdown, no explanation, no backticks.",
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e?.error||`HTTP ${res.status}`);}
+      const data=await res.json();
+      const raw=(data.content||[]).map(c=>c.text||"").join("").trim()
+        .replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
+      const parsed=JSON.parse(raw);
+      setEnrichDraft({groupId,...parsed});
+    }catch(e){
+      setEnrichError("Enrich failed: "+e.message);
+    }
+    setEnrichLoading(false);
+  };
+
+  const applyEnrichDraft=(groupId,draft)=>{
+    const patch={};
+    const rowPatch={};
+    const ADKAR_KEYS=["awareness","desire","knowledge","ability","reinforcement"];
+    ADKAR_KEYS.forEach(k=>{ if(draft[k]) rowPatch[k]=draft[k]; });
+    ["barriersToChange","wiifm","resistanceNotes","engagementStrategy"].forEach(k=>{ if(draft[k]) rowPatch[k]=draft[k]; });
+    if(Object.keys(rowPatch).length) onUpdateRow(groupId,rowPatch);
+    setEnrichDraft(null);setEnrichError("");
+  };
+
   const runAiUpdate=async()=>{
     setAiLoading(true);setAiError("");
     const summary=groups.map(g=>{
@@ -4746,8 +4861,11 @@ Keep responses concise and actionable. Format with clear sections.`;
         </div>
         <div style={{display:"flex",gap:8,alignItems:"flex-start",flexShrink:0,flexWrap:"wrap"}}>
           <button className="btn btn-ghost" style={{fontSize:12,padding:"7px 14px",display:"flex",alignItems:"center",gap:6,
-            borderColor:"#c96a3a",color:"#c96a3a"}}
-            onClick={()=>setShowAiPreflight(true)} disabled={aiLoading}>
+            borderColor:groups.length===0?"var(--border)":"#c96a3a",
+            color:groups.length===0?"var(--slate2)":"#c96a3a",
+            opacity:groups.length===0?0.5:1,
+            cursor:groups.length===0?"not-allowed":"pointer"}}
+            onClick={()=>{ if(groups.length===0) return; setShowAiPreflight(true); }} disabled={aiLoading}>
             {aiLoading?<span style={{width:11,height:11,border:"2px solid #c96a3a33",borderTopColor:"#c96a3a",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>:"✦"}
             {aiLoading?"Analyzing…":"Update with AI"}
           </button>
@@ -4843,15 +4961,82 @@ Keep responses concise and actionable. Format with clear sections.`;
 
           {/* Empty state */}
           {groups.length===0&&!adding&&(
-            <div style={{textAlign:"center",padding:"50px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,padding:"40px 0",maxWidth:560,margin:"0 auto",width:"100%"}}>
               <div style={{width:60,height:60,borderRadius:"50%",background:"#f0f7f2",border:"2px solid #a8d8b8",
                 display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>👥</div>
               <div style={{fontFamily:"var(--serif)",fontSize:20,fontWeight:700,color:"var(--navy)"}}>No stakeholder groups yet</div>
-              <div style={{fontSize:13,color:"var(--slate)",lineHeight:1.65,maxWidth:440}}>
-                Define the groups most affected by this initiative. For each group you can assess ADKAR readiness, log resistance, map influence, and plan engagement.
+              <div style={{fontSize:13,color:"var(--slate)",lineHeight:1.65,textAlign:"center"}}>
+                Define the groups most affected by this initiative. Add groups manually, or paste in any project context below and let AI draft an initial set for you.
               </div>
-              <button className="btn btn-primary" style={{marginTop:4,fontSize:13,padding:"9px 22px"}}
+              <button className="btn btn-primary" style={{fontSize:13,padding:"9px 22px"}}
                 onClick={()=>setAdding(true)}>+ Add First Group</button>
+
+              {/* Bootstrap AI panel */}
+              <div style={{width:"100%",background:"var(--white)",border:"1px solid var(--border)",borderRadius:12,padding:"16px 18px",marginTop:4}}>
+                <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"#c96a3a",marginBottom:8}}>✦ GENERATE GROUPS WITH AI</div>
+                <div style={{fontSize:12,color:"var(--slate)",lineHeight:1.6,marginBottom:10}}>
+                  Paste a project description, org chart, stakeholder list, or any relevant context. OCM Studio will draft an initial set of stakeholder groups for you to review and refine.
+                </div>
+                <textarea className="inp" style={{width:"100%",minHeight:100,fontSize:12,padding:"9px 11px",lineHeight:1.6,marginBottom:10,resize:"vertical"}}
+                  value={bootstrapContext} onChange={e=>setBootstrapContext(e.target.value)}
+                  placeholder="Paste project description, org chart excerpt, stakeholder list, or any relevant context…"/>
+                {bootstrapError&&(
+                  <div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"8px 10px",marginBottom:10}}>
+                    {bootstrapError}
+                  </div>
+                )}
+                <button className="btn btn-primary" style={{fontSize:12,padding:"7px 18px",display:"flex",alignItems:"center",gap:8}}
+                  onClick={runBootstrapAi} disabled={bootstrapLoading||!bootstrapContext.trim()}>
+                  {bootstrapLoading
+                    ?<><span style={{width:12,height:12,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Generating groups…</>
+                    :"✦ Generate Groups"}
+                </button>
+                {bootstrapDrafts.length>0&&(
+                  <div style={{marginTop:14,display:"flex",flexDirection:"column",gap:8}}>
+                    <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)"}}>
+                      REVIEW DRAFTS — accept groups to add them to your assessment
+                    </div>
+                    {bootstrapDrafts.filter(d=>!d.dismissed).map(draft=>(
+                      <div key={draft._draftId} style={{background:draft.accepted?"#f0f7f2":"var(--white)",
+                        border:`1px solid ${draft.accepted?"#a8d8b8":"var(--border)"}`,
+                        borderRadius:10,padding:"12px 14px"}}>
+                        <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:800,color:"var(--navy)",marginBottom:3}}>{draft.name}</div>
+                            {draft.department&&<div style={{fontSize:11,fontFamily:"var(--mono)",color:"var(--slate2)",marginBottom:4}}>{draft.department}</div>}
+                            {draft.rationale&&<div style={{fontSize:12,color:"var(--slate)",lineHeight:1.5}}>{draft.rationale}</div>}
+                          </div>
+                          <div style={{display:"flex",gap:6,flexShrink:0}}>
+                            {!draft.accepted&&(
+                              <button className="btn btn-primary" style={{fontSize:11,padding:"5px 12px"}}
+                                onClick={()=>{
+                                  const id=onAddGroup(draft.name);
+                                  if(draft.department) onUpdateGroup(id,{department:draft.department,stakeholderType:draft.stakeholderType||"",disposition:draft.disposition||""});
+                                  setBootstrapDrafts(prev=>prev.map(d=>d._draftId===draft._draftId?{...d,accepted:true}:d));
+                                }}>✓ Accept</button>
+                            )}
+                            {draft.accepted&&<span style={{fontSize:11,fontWeight:900,color:"#4a9e6a",padding:"5px 0"}}>✓ Added</span>}
+                            {!draft.accepted&&(
+                              <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 10px"}}
+                                onClick={()=>setBootstrapDrafts(prev=>prev.map(d=>d._draftId===draft._draftId?{...d,dismissed:true}:d))}>
+                                Dismiss
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {bootstrapDrafts.every(d=>d.accepted||d.dismissed)&&(
+                      <div style={{textAlign:"center",paddingTop:6}}>
+                        <button className="btn btn-ghost" style={{fontSize:12}}
+                          onClick={()=>{setBootstrapDrafts([]);setBootstrapContext("");}}>
+                          ↺ Generate more
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -5040,7 +5225,85 @@ Keep responses concise and actionable. Format with clear sections.`;
 
             <div className="detailSlideBody">
 
-              {/* CIA impacts */}
+              {/* ── Enrich with AI ── */}
+              <div style={{background:"var(--off)",borderRadius:10,padding:"12px 14px",border:"1px solid var(--border)"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:enrichDraft||enrichError?10:0}}>
+                  <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,color:"#c96a3a",letterSpacing:".08em"}}>✦ ENRICH WITH AI</div>
+                  <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 12px",borderColor:"#c96a3a",color:"#c96a3a",display:"flex",alignItems:"center",gap:6}}
+                    onClick={()=>runEnrichGroup(activeId)} disabled={enrichLoading}>
+                    {enrichLoading
+                      ?<><span style={{width:10,height:10,border:"2px solid #c96a3a33",borderTopColor:"#c96a3a",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Analyzing…</>
+                      :"Suggest fields"}
+                  </button>
+                </div>
+                {!enrichDraft&&!enrichError&&(
+                  <div style={{fontSize:11,color:"var(--slate2)",lineHeight:1.55,marginTop:6}}>
+                    Suggest ADKAR ratings, barriers, WIIFM, and engagement strategy based on this group's profile and the project's change impacts.
+                  </div>
+                )}
+                {enrichError&&(
+                  <div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"8px 10px"}}>
+                    {enrichError}
+                  </div>
+                )}
+                {enrichDraft&&enrichDraft.groupId===activeId&&(()=>{
+                  const ADKAR_KEYS=["awareness","desire","knowledge","ability","reinforcement"];
+                  const ADKAR_LABELS={awareness:"Awareness",desire:"Desire",knowledge:"Knowledge",ability:"Ability",reinforcement:"Reinforcement"};
+                  const LC2={High:"#4a9e6a",Medium:"#c48a1a",Low:"#b84040"};
+                  const LB2={High:"#f0f7f2",Medium:"#fdf8ec",Low:"#fdf0f0"};
+                  const textFields=[
+                    {k:"barriersToChange",l:"Barriers to Change"},
+                    {k:"wiifm",l:"WIIFM"},
+                    {k:"resistanceNotes",l:"Resistance Notes"},
+                    {k:"engagementStrategy",l:"Engagement Strategy"},
+                  ].filter(({k})=>enrichDraft[k]);
+                  const adkarSuggestions=ADKAR_KEYS.filter(k=>enrichDraft[k]);
+                  return(
+                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                      {enrichDraft.rationale&&(
+                        <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.6,background:"var(--white)",borderRadius:8,padding:"9px 11px",borderLeft:"3px solid #c96a3a"}}>
+                          {enrichDraft.rationale}
+                        </div>
+                      )}
+                      {adkarSuggestions.length>0&&(
+                        <div>
+                          <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",marginBottom:6}}>SUGGESTED ADKAR RATINGS</div>
+                          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                            {adkarSuggestions.map(k=>(
+                              <span key={k} style={{fontSize:11,fontWeight:900,fontFamily:"var(--mono)",
+                                color:LC2[enrichDraft[k]],background:LB2[enrichDraft[k]],
+                                borderRadius:6,padding:"3px 9px",border:`1px solid ${LC2[enrichDraft[k]]}44`}}>
+                                {ADKAR_LABELS[k][0]}: {enrichDraft[k]}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {textFields.length>0&&(
+                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                          <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em"}}>SUGGESTED TEXT FIELDS</div>
+                          {textFields.map(({k,l})=>(
+                            <div key={k} style={{background:"var(--white)",borderRadius:8,padding:"8px 10px",border:"1px solid var(--border)"}}>
+                              <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",marginBottom:3}}>{l.toUpperCase()}</div>
+                              <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.55}}>{enrichDraft[k]}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{display:"flex",gap:8,paddingTop:4}}>
+                        <button className="btn btn-primary" style={{fontSize:11,padding:"6px 14px"}}
+                          onClick={()=>applyEnrichDraft(activeId,enrichDraft)}>
+                          ✓ Apply suggestions
+                        </button>
+                        <button className="btn btn-ghost" style={{fontSize:11,padding:"6px 12px"}}
+                          onClick={()=>{setEnrichDraft(null);setEnrichError("");}}>
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
               {ciaFor(activeId).length>0&&(
                 <div style={{background:"var(--off2)",borderRadius:10,padding:"10px 12px"}}>
                   <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,color:"var(--slate2)",letterSpacing:".08em",marginBottom:8}}>CIA IMPACTS</div>
