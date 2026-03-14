@@ -4673,8 +4673,9 @@ function SAPage({groups,rows,ciaEntries,showIndicators,setShowIndicators,adkarDo
   const LB={Low:"#fdf0f0",Medium:"#fdf8ec",High:"#f0f7f2"};
 
   const [showAiPreflight,setShowAiPreflight]=React.useState(false);
+  const [showBootstrap,setShowBootstrap]=React.useState(false);
 
-  // ── Bootstrap AI (empty state) ──
+  // ── Bootstrap AI ──
   const [bootstrapContext,setBootstrapContext]=React.useState("");
   const [bootstrapLoading,setBootstrapLoading]=React.useState(false);
   const [bootstrapError,setBootstrapError]=React.useState("");
@@ -4869,6 +4870,12 @@ Keep responses concise and actionable. Format with clear sections.`;
             {aiLoading?<span style={{width:11,height:11,border:"2px solid #c96a3a33",borderTopColor:"#c96a3a",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>:"✦"}
             {aiLoading?"Analyzing…":"Update with AI"}
           </button>
+          <button className="btn btn-ghost" style={{fontSize:12,padding:"7px 14px",display:"flex",alignItems:"center",gap:6,
+            borderColor:"#5a8a70",color:"#5a8a70",
+            background:showBootstrap?"#f0f7f2":"transparent"}}
+            onClick={()=>setShowBootstrap(v=>!v)}>
+            ✦ Generate Groups
+          </button>
           <button className="btn btn-primary" style={{fontSize:13,padding:"8px 16px"}}
             onClick={()=>setAdding(true)}>+ Add Group</button>
         </div>
@@ -4961,42 +4968,50 @@ Keep responses concise and actionable. Format with clear sections.`;
 
           {/* Empty state */}
           {groups.length===0&&!adding&&(
-            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,padding:"40px 0",maxWidth:560,margin:"0 auto",width:"100%"}}>
+            <div style={{textAlign:"center",padding:"50px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
               <div style={{width:60,height:60,borderRadius:"50%",background:"#f0f7f2",border:"2px solid #a8d8b8",
                 display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>👥</div>
               <div style={{fontFamily:"var(--serif)",fontSize:20,fontWeight:700,color:"var(--navy)"}}>No stakeholder groups yet</div>
-              <div style={{fontSize:13,color:"var(--slate)",lineHeight:1.65,textAlign:"center"}}>
-                Define the groups most affected by this initiative. Add groups manually, or paste in any project context below and let AI draft an initial set for you.
+              <div style={{fontSize:13,color:"var(--slate)",lineHeight:1.65,maxWidth:440}}>
+                Define the groups most affected by this initiative. Add groups manually, or use <strong>✦ Generate Groups</strong> above to draft an initial set from project context.
               </div>
-              <button className="btn btn-primary" style={{fontSize:13,padding:"9px 22px"}}
+              <button className="btn btn-primary" style={{marginTop:4,fontSize:13,padding:"9px 22px"}}
                 onClick={()=>setAdding(true)}>+ Add First Group</button>
+            </div>
+          )}
 
-              {/* Bootstrap AI panel */}
-              <div style={{width:"100%",background:"var(--white)",border:"1px solid var(--border)",borderRadius:12,padding:"16px 18px",marginTop:4}}>
-                <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"#c96a3a",marginBottom:8}}>✦ GENERATE GROUPS WITH AI</div>
-                <div style={{fontSize:12,color:"var(--slate)",lineHeight:1.6,marginBottom:10}}>
-                  Paste a project description, org chart, stakeholder list, or any relevant context. OCM Studio will draft an initial set of stakeholder groups for you to review and refine.
+          {/* ── Bootstrap AI panel — persistent, toggled from header ── */}
+          {showBootstrap&&(
+            <div style={{background:"var(--white)",border:"1.5px solid #a8d8b8",borderRadius:12,padding:"18px 20px",maxWidth:680}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,color:"#5a8a70",letterSpacing:".08em"}}>✦ GENERATE GROUPS WITH AI</div>
+                <button className="iconBtn" onClick={()=>setShowBootstrap(false)}>✕</button>
+              </div>
+              <div style={{fontSize:12,color:"var(--slate)",lineHeight:1.6,marginBottom:10}}>
+                Paste a project description, org chart, stakeholder list, or any relevant context. OCM Studio will draft an initial set of stakeholder groups for you to review and accept individually.
+              </div>
+              <textarea className="inp" style={{width:"100%",minHeight:100,fontSize:12,padding:"9px 11px",lineHeight:1.6,marginBottom:10,resize:"vertical"}}
+                value={bootstrapContext} onChange={e=>setBootstrapContext(e.target.value)}
+                placeholder="Paste project description, org chart excerpt, stakeholder list, or any relevant context…"/>
+              {bootstrapError&&(
+                <div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"8px 10px",marginBottom:10}}>
+                  {bootstrapError}
                 </div>
-                <textarea className="inp" style={{width:"100%",minHeight:100,fontSize:12,padding:"9px 11px",lineHeight:1.6,marginBottom:10,resize:"vertical"}}
-                  value={bootstrapContext} onChange={e=>setBootstrapContext(e.target.value)}
-                  placeholder="Paste project description, org chart excerpt, stakeholder list, or any relevant context…"/>
-                {bootstrapError&&(
-                  <div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"8px 10px",marginBottom:10}}>
-                    {bootstrapError}
+              )}
+              <button className="btn btn-primary" style={{fontSize:12,padding:"7px 18px",display:"flex",alignItems:"center",gap:8,background:"linear-gradient(135deg,#6aaa88,#5a8a70)",boxShadow:"0 2px 10px rgba(90,138,112,.28)"}}
+                onClick={runBootstrapAi} disabled={bootstrapLoading||!bootstrapContext.trim()}>
+                {bootstrapLoading
+                  ?<><span style={{width:12,height:12,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Generating groups…</>
+                  :"✦ Generate Groups"}
+              </button>
+              {bootstrapDrafts.length>0&&(
+                <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:8}}>
+                  <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)"}}>
+                    REVIEW DRAFTS — accept or dismiss each group
                   </div>
-                )}
-                <button className="btn btn-primary" style={{fontSize:12,padding:"7px 18px",display:"flex",alignItems:"center",gap:8}}
-                  onClick={runBootstrapAi} disabled={bootstrapLoading||!bootstrapContext.trim()}>
-                  {bootstrapLoading
-                    ?<><span style={{width:12,height:12,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Generating groups…</>
-                    :"✦ Generate Groups"}
-                </button>
-                {bootstrapDrafts.length>0&&(
-                  <div style={{marginTop:14,display:"flex",flexDirection:"column",gap:8}}>
-                    <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)"}}>
-                      REVIEW DRAFTS — accept groups to add them to your assessment
-                    </div>
-                    {bootstrapDrafts.filter(d=>!d.dismissed).map(draft=>(
+                  {bootstrapDrafts.map(draft=>{
+                    if(draft.dismissed) return null;
+                    return(
                       <div key={draft._draftId} style={{background:draft.accepted?"#f0f7f2":"var(--white)",
                         border:`1px solid ${draft.accepted?"#a8d8b8":"var(--border)"}`,
                         borderRadius:10,padding:"12px 14px"}}>
@@ -5008,10 +5023,10 @@ Keep responses concise and actionable. Format with clear sections.`;
                           </div>
                           <div style={{display:"flex",gap:6,flexShrink:0}}>
                             {!draft.accepted&&(
-                              <button className="btn btn-primary" style={{fontSize:11,padding:"5px 12px"}}
+                              <button className="btn btn-primary" style={{fontSize:11,padding:"5px 12px",background:"linear-gradient(135deg,#6aaa88,#5a8a70)",boxShadow:"none"}}
                                 onClick={()=>{
                                   const id=onAddGroup(draft.name);
-                                  if(draft.department) onUpdateGroup(id,{department:draft.department,stakeholderType:draft.stakeholderType||"",disposition:draft.disposition||""});
+                                  if(id&&draft.department) onUpdateGroup(id,{department:draft.department,stakeholderType:draft.stakeholderType||"",disposition:draft.disposition||""});
                                   setBootstrapDrafts(prev=>prev.map(d=>d._draftId===draft._draftId?{...d,accepted:true}:d));
                                 }}>✓ Accept</button>
                             )}
@@ -5025,18 +5040,22 @@ Keep responses concise and actionable. Format with clear sections.`;
                           </div>
                         </div>
                       </div>
-                    ))}
-                    {bootstrapDrafts.every(d=>d.accepted||d.dismissed)&&(
-                      <div style={{textAlign:"center",paddingTop:6}}>
-                        <button className="btn btn-ghost" style={{fontSize:12}}
-                          onClick={()=>{setBootstrapDrafts([]);setBootstrapContext("");}}>
-                          ↺ Generate more
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                    );
+                  })}
+                  {bootstrapDrafts.every(d=>d.accepted||d.dismissed)&&(
+                    <div style={{display:"flex",gap:8,paddingTop:4}}>
+                      <button className="btn btn-ghost" style={{fontSize:12}}
+                        onClick={()=>{setBootstrapDrafts([]);setBootstrapContext("");}}>
+                        ↺ Generate more
+                      </button>
+                      <button className="btn btn-ghost" style={{fontSize:12}}
+                        onClick={()=>{setBootstrapDrafts([]);setBootstrapContext("");setShowBootstrap(false);}}>
+                        Done
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
