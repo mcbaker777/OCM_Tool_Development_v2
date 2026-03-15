@@ -6076,7 +6076,281 @@ tbody tr:hover td{background:#faf7f2;}
   const saAssessedCount=stakeholderRows.filter(r=>ADKAR_D.some(d=>r[d])).length;
   const saGroupCount=stakeholderGroups.length;
 
-  return(
+  // ── Pulse — rule-based observation engine ──
+  const [pulseOpen,setPulseOpen]=useState(false);
+  const [pulseRec,setPulseRec]=useState({}); // {obsId: {loading, result, error}}
+  const pulseRef=useRef(null);
+
+  useEffect(()=>{
+    if(!pulseOpen) return;
+    const handler=(e)=>{ if(pulseRef.current&&!pulseRef.current.contains(e.target)) setPulseOpen(false); };
+    document.addEventListener("mousedown",handler);
+    return()=>document.removeEventListener("mousedown",handler);
+  },[pulseOpen]);
+
+  const pulseObservations=useMemo(()=>{
+    const obs=[];
+    const snap=stage4Snap||{};
+    const tasks=snap.tasks||{};
+    const goLiveDate=snap.goLiveDate||initGoLiveDate||"";
+    const rag=snap.rag||initRag||"none";
+    const deliverables=snap.deliverables||[];
+
+    // Helper: flatten all tasks to array
+    const allTasks=[];
+    Object.entries(tasks).forEach(([lane,phases])=>{
+      Object.entries(phases||{}).forEach(([phase,arr])=>{
+        (arr||[]).forEach(t=>allTasks.push({...t,lane,phase}));
+      });
+    });
+
+    // Days to go-live
+    const daysLeft=goLiveDate?Math.ceil((new Date(goLiveDate)-new Date())/(1000*60*60*24)):null;
+
+    // ── Cross-module rules ──
+
+    // CIA entries with High magnitude but no stakeholder groups linked
+    const unlinkedHighCia=ciaEntries.filter(e=>e.magnitude==="High"&&(!e.impactedGroups||e.impactedGroups.length===0));
+    if(unlinkedHighCia.length>0){
+      obs.push({
+        id:"cia_unlinked_high",
+        severity:"red",
+        title:`${unlinkedHighCia.length} High-magnitude change${unlinkedHighCia.length>1?"s":""} have no stakeholder groups linked`,
+        why:"High-magnitude changes without linked groups may not be reflected in your engagement or readiness planning.",
+        module:"cia",
+        data:{entries:unlinkedHighCia},
+      });
+    }
+
+    // SA groups with High-magnitude CIA impacts but Low ADKAR ratings
+    stakeholderGroups.forEach(g=>{
+      const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
+      const highImpacts=ciaEntries.filter(e=>e.magnitude==="High"&&(e.impactedGroups||[]).includes(g.id));
+      const lowAdkar=ADKAR_D.filter(d=>row[d]==="Low");
+      if(highImpacts.length>0&&lowAdkar.length>0){
+        obs.push({
+          id:`sa_readiness_gap_${g.id}`,
+          severity:"red",
+          title:`Readiness gap: ${g.name} has High-magnitude impacts but Low ${lowAdkar.map(d=>d[0].toUpperCase()).join(", ")} rating${lowAdkar.length>1?"s":""}`,
+          why:"A group facing high-magnitude change with low readiness scores represents significant adoption risk.",
+          module:"sa",
+          data:{groupId:g.id,groupName:g.name,lowAdkar,highImpacts},
+        });
+      }
+    });
+
+    // Resistant groups with no resistance notes or intervention plan
+    stakeholderGroups.forEach(g=>{
+      const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
+      if(g.disposition==="Resistant"&&!row.resistanceNotes&&!row.interventionPlan){
+        obs.push({
+          id:`sa_resistant_no_plan_${g.id}`,
+          severity:"red",
+          title:`${g.name} is Resistant with no resistance notes or intervention plan`,
+          why:"Resistant groups without a documented response plan are an unmanaged risk.",
+          module:"sa",
+          data:{groupId:g.id,groupName:g.name},
+        });
+      }
+    });
+
+    // SA groups with no CIA impacts linked at all
+    const groupsWithNoImpacts=stakeholderGroups.filter(g=>!ciaEntries.some(e=>(e.impactedGroups||[]).includes(g.id)));
+    if(groupsWithNoImpacts.length>0&&ciaEntries.length>0){
+      obs.push({
+        id:"sa_groups_no_impacts",
+        severity:"amber",
+        title:`${groupsWithNoImpacts.length} stakeholder group${groupsWithNoImpacts.length>1?"s":""} have no change impacts linked`,
+        why:"Groups without linked CIA entries may be missing from your impact and engagement planning.",
+        module:"sa",
+        data:{groups:groupsWithNoImpacts.map(g=>g.name)},
+      });
+    }
+
+    // CIA entries exist but no SA groups defined
+    if(ciaEntries.length>0&&stakeholderGroups.length===0){
+      obs.push({
+        id:"cia_no_sa_groups",
+        severity:"amber",
+        title:"Change impacts logged but no stakeholder groups defined",
+        why:"Without stakeholder groups, change impacts cannot be linked to the people they affect.",
+        module:"sa",
+        data:{},
+      });
+    }
+
+    // SA groups exist but no CIA entries
+    if(stakeholderGroups.length>0&&ciaEntries.length===0){
+      obs.push({
+        id:"sa_no_cia",
+        severity:"amber",
+        title:"Stakeholder groups defined but no change impacts logged",
+        why:"Without change impacts, it's difficult to assess what each group is actually facing.",
+        module:"cia",
+        data:{},
+      });
+    }
+
+    // ── Timeline rules ──
+    if(daysLeft!==null){
+      // Blocked tasks near go-live
+      const blockedTasks=allTasks.filter(t=>t.status==="blocked"||t.status==="red");
+      if(blockedTasks.length>0&&daysLeft<=30){
+        obs.push({
+          id:"map_blocked_near_golive",
+          severity:"red",
+          title:`${blockedTasks.length} blocked or critical task${blockedTasks.length>1?"s":""} with ${daysLeft} day${daysLeft===1?"":"s"} to go-live`,
+          why:"Unresolved blockers close to go-live significantly increase cutover risk.",
+          module:"map",
+          data:{tasks:blockedTasks.slice(0,5).map(t=>t.label)},
+        });
+      }
+
+      // Planned tasks not started near go-live
+      const plannedTasks=allTasks.filter(t=>t.status==="blue");
+      if(plannedTasks.length>0&&daysLeft<=30){
+        obs.push({
+          id:"map_planned_near_golive",
+          severity:"amber",
+          title:`${plannedTasks.length} task${plannedTasks.length>1?"s":""} still in Planned status with ${daysLeft} day${daysLeft===1?"":"s"} to go-live`,
+          why:"Tasks not yet started this close to go-live may indicate planning or resourcing gaps.",
+          module:"map",
+          data:{count:plannedTasks.length},
+        });
+      }
+
+      // Deliverables at 0% near go-live
+      const zeroDeliverables=deliverables.filter(d=>(!d.pct||d.pct===0));
+      if(zeroDeliverables.length>0&&daysLeft<=60){
+        obs.push({
+          id:"map_deliverables_zero",
+          severity:"amber",
+          title:`${zeroDeliverables.length} deliverable${zeroDeliverables.length>1?"s":""} not started with ${daysLeft} day${daysLeft===1?"":"s"} to go-live`,
+          why:"Key OCM deliverables at 0% completion this close to go-live may not be finished in time.",
+          module:"map",
+          data:{deliverables:zeroDeliverables.map(d=>d.name)},
+        });
+      }
+
+      // SA groups with no ADKAR data near go-live
+      const unassessedGroups=stakeholderGroups.filter(g=>{
+        const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
+        return !ADKAR_D.some(d=>row[d]);
+      });
+      if(unassessedGroups.length>0&&daysLeft<=45){
+        obs.push({
+          id:"sa_unassessed_near_golive",
+          severity:"amber",
+          title:`${unassessedGroups.length} stakeholder group${unassessedGroups.length>1?"s":""} have no ADKAR data with ${daysLeft} days to go-live`,
+          why:"Groups without readiness ratings cannot be included in the executive summary or targeted interventions.",
+          module:"sa",
+          data:{groups:unassessedGroups.map(g=>g.name)},
+        });
+      }
+    }
+
+    // ── Completeness rules (no timeline required) ──
+
+    // RAG is Red but no resistance notes anywhere
+    const anyResistanceNotes=stakeholderRows.some(r=>r.resistanceNotes);
+    if(rag==="red"&&!anyResistanceNotes&&stakeholderGroups.length>0){
+      obs.push({
+        id:"rag_red_no_resistance",
+        severity:"amber",
+        title:"Project RAG is Red but no resistance notes documented",
+        why:"A Red RAG status without documented resistance context limits your ability to explain the risk to leadership.",
+        module:"sa",
+        data:{},
+      });
+    }
+
+    // Go-live date not set
+    if(!goLiveDate){
+      obs.push({
+        id:"no_golive_date",
+        severity:"info",
+        title:"Go-live date not set",
+        why:"Without a go-live date, timeline-based observations and risk flags are unavailable.",
+        module:"map",
+        data:{},
+      });
+    }
+
+    return obs;
+  },[stage4Snap, ciaEntries, stakeholderGroups, stakeholderRows, initGoLiveDate, initRag]);
+
+  const redCount=pulseObservations.filter(o=>o.severity==="red").length;
+  const amberCount=pulseObservations.filter(o=>o.severity==="amber").length;
+  const totalCount=pulseObservations.length;
+
+  const getPulseRec=async(obs)=>{
+    const id=obs.id;
+    setPulseRec(prev=>({...prev,[id]:{loading:true,result:null,error:null}}));
+    const snap=stage4Snap||{};
+    const goLiveDate=snap.goLiveDate||initGoLiveDate||"";
+    const daysLeft=goLiveDate?Math.ceil((new Date(goLiveDate)-new Date())/(1000*60*60*24)):null;
+
+    const context=`PROJECT: ${project.name}
+TIER: ${tier}
+GO-LIVE: ${goLiveDate||"Not set"}${daysLeft!==null?` (${daysLeft} days away)`:""}
+RAG STATUS: ${snap.rag||initRag||"none"}
+
+OBSERVATION: ${obs.title}
+WHY IT MATTERS: ${obs.why}
+
+RELEVANT DATA:
+${JSON.stringify(obs.data,null,2)}
+
+STAKEHOLDER GROUPS (summary):
+${stakeholderGroups.slice(0,8).map(g=>{
+  const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
+  return `${g.name} | Disposition: ${g.disposition||"?"} | ADKAR: ${ADKAR_D.map(d=>`${d[0].toUpperCase()}=${row[d]||"?"}`).join(" ")}`;
+}).join("\n")||"None defined"}
+
+CHANGE IMPACTS (summary):
+${ciaEntries.slice(0,6).map(e=>`${e.id}: ${e.title||e.description} (${e.magnitude}) → groups: ${(e.impactedGroups||[]).map(id=>stakeholderGroups.find(g=>g.id===id)?.name||id).join(", ")||"none"}`).join("\n")||"None logged"}`;
+
+    const prompt=`You are an expert OCM strategist advising a change practitioner. Based on the observation and project context below, provide a single specific recommended action they can take right now to address this risk.
+
+${context}
+
+Your recommendation must be:
+- Specific to this project and observation — not generic advice
+- A single concrete action, not a list
+- 2-4 sentences maximum
+- Actionable immediately within OCM Studio or as a direct practitioner action
+- Written in plain language, practitioner to practitioner
+
+Return ONLY the recommendation text. No preamble, no headers.`;
+
+    try{
+      const res=await fetch("/api/claude",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-5",
+          max_tokens:300,
+          system:"You are an expert OCM strategist. Provide a single, specific, actionable recommendation. Plain text only.",
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e?.error||`HTTP ${res.status}`);}
+      const data=await res.json();
+      const text=(data.content||[]).map(c=>c.text||"").join("").trim();
+      setPulseRec(prev=>({...prev,[id]:{loading:false,result:text,error:null}}));
+    }catch(e){
+      setPulseRec(prev=>({...prev,[id]:{loading:false,result:null,error:e.message}}));
+    }
+  };
+
+  const applyPulseRec=(obs)=>{
+    // Navigate to the relevant module
+    if(obs.module==="cia") setCurrentView("cia");
+    else if(obs.module==="sa") setCurrentView("sa");
+    else if(obs.module==="map") setCurrentView("map");
+    setPulseOpen(false);
+    setPulseRec(prev=>({...prev,[obs.id]:{...prev[obs.id],applied:true}}));
+  };
     <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
       {/* ── Top nav ── */}
       <div className="workspaceNav">
@@ -6107,6 +6381,137 @@ tbody tr:hover td{background:#faf7f2;}
         </button>
 
         <div className="navSpacer"/>
+
+        {/* ── Pulse bell icon ── */}
+        {!viewOnly&&(
+          <div style={{position:"relative"}} ref={pulseRef}>
+            <button
+              onClick={()=>setPulseOpen(v=>!v)}
+              style={{
+                display:"flex",alignItems:"center",gap:6,
+                background:pulseOpen?"rgba(232,221,208,.15)":"transparent",
+                border:"none",cursor:"pointer",padding:"6px 10px",borderRadius:8,
+                color:redCount>0?"#cc5050":amberCount>0?"#d4a020":"#9a8e82",
+                transition:"all .12s",position:"relative",
+              }}
+              title="Project Pulse — observations and recommendations"
+            >
+              <span style={{fontSize:16}}>
+                {redCount>0?"🔴":amberCount>0?"🟡":"🟢"}
+              </span>
+              <span style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".06em",
+                color:redCount>0?"#cc5050":amberCount>0?"#d4a020":totalCount===0?"#9a8e82":"#4a9e6a"}}>
+                PULSE{totalCount>0?` · ${totalCount}`:""}
+              </span>
+            </button>
+
+            {/* Pulse tray */}
+            {pulseOpen&&(
+              <div style={{
+                position:"absolute",top:"calc(100% + 8px)",right:0,
+                width:420,maxHeight:520,
+                background:"var(--white)",border:"1px solid var(--border)",
+                borderRadius:14,boxShadow:"0 8px 32px rgba(28,20,10,.16)",
+                zIndex:2000,display:"flex",flexDirection:"column",overflow:"hidden",
+              }}>
+                {/* Tray header */}
+                <div style={{padding:"14px 16px",borderBottom:"1px solid var(--border)",
+                  display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+                  <div>
+                    <div style={{fontFamily:"var(--serif)",fontSize:15,fontWeight:800,color:"var(--navy)"}}>Project Pulse</div>
+                    <div style={{fontSize:11,color:"var(--slate2)",marginTop:2}}>
+                      {totalCount===0?"No observations — project looks good"
+                        :`${redCount>0?`${redCount} risk${redCount>1?"s":""}`:""} ${redCount>0&&amberCount>0?"· ":""} ${amberCount>0?`${amberCount} attention needed`:""} ${totalCount===redCount+amberCount&&totalCount>0?"":""}`}
+                    </div>
+                  </div>
+                  <button className="iconBtn" onClick={()=>setPulseOpen(false)}>✕</button>
+                </div>
+
+                {/* Observations list */}
+                <div style={{overflowY:"auto",flex:1,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                  {totalCount===0&&(
+                    <div style={{textAlign:"center",padding:"32px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:28}}>✅</span>
+                      <div style={{fontSize:13,color:"var(--slate)",lineHeight:1.6}}>No observations at this time. Keep going — the Pulse updates automatically as your project data changes.</div>
+                    </div>
+                  )}
+                  {pulseObservations.map(obs=>{
+                    const rec=pulseRec[obs.id]||{};
+                    const sevColor=obs.severity==="red"?"#cc5050":obs.severity==="amber"?"#d4a020":"#5a8a70";
+                    const sevBg=obs.severity==="red"?"#fdf0f0":obs.severity==="amber"?"#fef8ec":"#f0f7f2";
+                    const sevBdr=obs.severity==="red"?"#f0c0c0":obs.severity==="amber"?"#f0e0a0":"#a8d8b8";
+                    const icon=obs.severity==="red"?"🔴":obs.severity==="amber"?"🟡":"🔵";
+                    return(
+                      <div key={obs.id} style={{background:sevBg,border:`1px solid ${sevBdr}`,borderRadius:10,padding:"12px 14px"}}>
+                        <div style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:6}}>
+                          <span style={{fontSize:12,flexShrink:0,marginTop:1}}>{icon}</span>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12,fontWeight:800,color:"var(--navy)",lineHeight:1.4,marginBottom:3}}>{obs.title}</div>
+                            <div style={{fontSize:11,color:"var(--slate)",lineHeight:1.5}}>{obs.why}</div>
+                          </div>
+                        </div>
+
+                        {/* Recommendation area */}
+                        {rec.result&&(
+                          <div style={{background:"var(--white)",borderRadius:8,padding:"10px 12px",
+                            border:"1px solid var(--border)",marginBottom:8,borderLeft:`3px solid ${sevColor}`}}>
+                            <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:sevColor,
+                              letterSpacing:".06em",marginBottom:5}}>RECOMMENDATION</div>
+                            <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.6}}>{rec.result}</div>
+                          </div>
+                        )}
+                        {rec.error&&(
+                          <div style={{fontSize:11,color:"#b84040",padding:"6px 8px",background:"#fdf0f0",
+                            borderRadius:6,marginBottom:8}}>Could not generate recommendation: {rec.error}</div>
+                        )}
+
+                        {/* Action buttons */}
+                        <div style={{display:"flex",gap:6,marginTop:6}}>
+                          <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px"}}
+                            onClick={()=>applyPulseRec(obs)}>
+                            → Go to {obs.module==="cia"?"CIA":obs.module==="sa"?"SA":"Map"}
+                          </button>
+                          {!rec.result&&!rec.loading&&(
+                            <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px",
+                              borderColor:sevColor,color:sevColor}}
+                              onClick={()=>getPulseRec(obs)}>
+                              ✦ Get Recommendation
+                            </button>
+                          )}
+                          {rec.loading&&(
+                            <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px",
+                              borderColor:sevColor,color:sevColor,opacity:.6}} disabled>
+                              <span style={{width:10,height:10,border:`2px solid ${sevColor}33`,borderTopColor:sevColor,
+                                borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Thinking…
+                            </button>
+                          )}
+                          {rec.result&&!rec.applied&&(
+                            <button className="btn btn-primary" style={{fontSize:11,padding:"4px 12px"}}
+                              onClick={()=>applyPulseRec(obs)}>
+                              ✓ Accept & Go
+                            </button>
+                          )}
+                          {rec.result&&(
+                            <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px"}}
+                              onClick={()=>setPulseRec(prev=>({...prev,[obs.id]:{...prev[obs.id],result:null}}))}>
+                              Dismiss
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Tray footer */}
+                <div style={{padding:"10px 14px",borderTop:"1px solid var(--border)",flexShrink:0,
+                  fontSize:10,fontFamily:"var(--mono)",color:"var(--slate2)",letterSpacing:".04em"}}>
+                  PULSE updates automatically · Recommendations use Claude Sonnet
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {!viewOnly&&(
           <button
