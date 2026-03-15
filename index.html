@@ -801,7 +801,7 @@ async function callClaude(userMsg){
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({
       model:"claude-sonnet-4-5",
-      max_tokens:8000,
+      max_tokens:4000,
       system:"You are an expert OCM strategist. Return ONLY valid JSON — no markdown, no explanation, no backticks. Never truncate the JSON. Always close every array and object.",
       messages:[{role:"user",content:userMsg}]
     })
@@ -854,23 +854,22 @@ async function compressContext(rawText, projectName){
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5",
-      max_tokens: 800,
-      system: "You are an expert OCM strategist. Extract only the information relevant to organizational change management planning. Be concise and specific. Plain text only — no JSON, no markdown, no headers.",
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 600,
+      system: "You are an expert OCM strategist. Extract only information relevant to change management planning. Be concise. Plain text only — no JSON, no markdown, no headers.",
       messages: [{
         role: "user",
-        content: `Extract the OCM-relevant signals from this document for a project called "${projectName}". Focus only on:
+        content: `Extract the OCM-relevant signals from this document for a project called "${projectName}". Cover only:
 - What is changing (systems, processes, behaviors, tools)
 - Who is affected and how (specific teams, roles, user populations)
 - Key risks or resistance indicators
 - Timeline or go-live signals
 - Named systems, platforms, or technologies
-- Organizational context (departments, locations, scale)
 
-Ignore project management details, budget information, and anything not directly relevant to change adoption planning. Be specific — use the actual names from the document. Aim for 200-300 words.
+Use actual names from the document. 150-200 words maximum.
 
 DOCUMENT:
-${rawText.slice(0, 8000)}`
+${rawText.slice(0, 4000)}`
       }]
     })
   });
