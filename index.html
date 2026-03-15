@@ -844,7 +844,40 @@ async function callClaude(userMsg){
   }
 }
 
-/* ===== Utilities ===== */
+/* ===== Context Compression ===== */
+// Used when document text is too long to send directly to the map generation call.
+// Extracts only OCM-relevant signals in a fast, low-token summarization pass.
+const COMPRESSION_THRESHOLD = 2000; // characters — below this, send raw; above, compress first
+
+async function compressContext(rawText, projectName){
+  const res = await fetch("/api/claude", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-5",
+      max_tokens: 800,
+      system: "You are an expert OCM strategist. Extract only the information relevant to organizational change management planning. Be concise and specific. Plain text only — no JSON, no markdown, no headers.",
+      messages: [{
+        role: "user",
+        content: `Extract the OCM-relevant signals from this document for a project called "${projectName}". Focus only on:
+- What is changing (systems, processes, behaviors, tools)
+- Who is affected and how (specific teams, roles, user populations)
+- Key risks or resistance indicators
+- Timeline or go-live signals
+- Named systems, platforms, or technologies
+- Organizational context (departments, locations, scale)
+
+Ignore project management details, budget information, and anything not directly relevant to change adoption planning. Be specific — use the actual names from the document. Aim for 200-300 words.
+
+DOCUMENT:
+${rawText.slice(0, 8000)}`
+      }]
+    })
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.error || `HTTP ${res.status}`); }
+  const data = await res.json();
+  return (data.content || []).map(c => c.text || "").join("").trim();
+}
 function getTaskId(lane, phase, idx){ return `${lane}||${phase}||${idx}`; }
 function parseTaskId(id){
   const [lane,phase,idx]=String(id||"").split("||");
@@ -1242,17 +1275,27 @@ function Stage2({project, scores, suggestedTier, onNext, onBack}){
     }).join(", ");
   },[scores]);
 
+  const [genMsg,setGenMsg]=React.useState("");
+
   const generate=async()=>{
-        setGen(true); setErr(null);
+    setGen(true); setErr(null); setGenMsg("Preparing your project…");
     try{
+      // ── Step 1: Compress if document is long ──
+      let context = project.description;
+      if(context.length > COMPRESSION_THRESHOLD){
+        setGenMsg("Reading document…");
+        context = await compressContext(context, project.name);
+        setGenMsg("Building your readiness map…");
+      }
+
       const prompt=`You are an expert OCM strategist. Generate a realistic, specific readiness map for this initiative.
 
 INITIATIVE NAME: ${project.name}
 TIER: ${tier} — ${cfg.sub}
 TIERING ASSESSMENT (completed by the user): ${tieringSummary}
 
-FULL INITIATIVE CONTEXT (document/description — first 4000 characters):
-${project.description.slice(0,4000)}${project.description.length>4000?" [truncated for brevity — use the above to ground your tasks]":""}
+INITIATIVE CONTEXT:
+${context}
 
 MAP STRUCTURE:
 Phases: ${phaseArr.join(", ")}
@@ -1272,10 +1315,10 @@ Rules:
 - Tasks must reflect real OCM activities appropriate for a ${cfg.sub} initiative at this tier`;
 
       const result=await callClaude(prompt);
-      setGen(false);
+      setGen(false); setGenMsg("");
       onNext(tier,laneArr,phaseArr,result.tasks,override,true);
     }catch(e){
-      setGen(false);
+      setGen(false); setGenMsg("");
       setErr(`Generation failed: ${e.message}. You can start with an empty map and add tasks manually.`);
     }
   };
@@ -1383,7 +1426,7 @@ Rules:
         {project.description.trim() ? (
           <button className="btn btn-primary" disabled={gen||!laneArr.length||!phaseArr.length} onClick={generate}>
             {gen ? (
-              <><span style={{width:14,height:14,border:"2px solid rgba(255,255,255,.5)",borderTopColor:"#fdfbf7",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}></span>Generating…</>
+              <><span style={{width:14,height:14,border:"2px solid rgba(255,255,255,.5)",borderTopColor:"#fdfbf7",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}></span>{genMsg||"Generating…"}</>
             ) : (
               <>✦ Generate Project with AI →</>
             )}
