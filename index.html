@@ -6292,7 +6292,7 @@ tbody tr:hover td{background:#faf7f2;}
 
     const context=`PROJECT: ${project.name}
 TIER: ${tier}
-GO-LIVE: ${goLiveDate||"Not set"}${daysLeft!==null?` (${daysLeft} days away)`:""}
+GO-LIVE: ${goLiveDate||"Not set"}${daysLeft!==null?" ("+daysLeft+" days away)":""}
 RAG STATUS: ${snap.rag||initRag||"none"}
 
 OBSERVATION: ${obs.title}
@@ -6304,11 +6304,11 @@ ${JSON.stringify(obs.data,null,2)}
 STAKEHOLDER GROUPS (summary):
 ${stakeholderGroups.slice(0,8).map(g=>{
   const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
-  return `${g.name} | Disposition: ${g.disposition||"?"} | ADKAR: ${ADKAR_D.map(d=>`${d[0].toUpperCase()}=${row[d]||"?"}`).join(" ")}`;
+  return g.name+" | Disposition: "+(g.disposition||"?")+" | ADKAR: "+ADKAR_D.map(d=>d[0].toUpperCase()+"="+(row[d]||"?")).join(" ");
 }).join("\n")||"None defined"}
 
 CHANGE IMPACTS (summary):
-${ciaEntries.slice(0,6).map(e=>`${e.id}: ${e.title||e.description} (${e.magnitude}) → groups: ${(e.impactedGroups||[]).map(id=>stakeholderGroups.find(g=>g.id===id)?.name||id).join(", ")||"none"}`).join("\n")||"None logged"}`;
+${ciaEntries.slice(0,6).map(e=>e.id+": "+(e.title||e.description)+" ("+e.magnitude+") → groups: "+((e.impactedGroups||[]).map(id=>(stakeholderGroups.find(g=>g.id===id)||{}).name||id).join(", ")||"none")).join("\n")||"None logged"}`;
 
     const prompt=`You are an expert OCM strategist advising a change practitioner. Based on the observation and project context below, provide a single specific recommended action they can take right now to address this risk.
 
@@ -6351,6 +6351,8 @@ Return ONLY the recommendation text. No preamble, no headers.`;
     setPulseOpen(false);
     setPulseRec(prev=>({...prev,[obs.id]:{...prev[obs.id],applied:true}}));
   };
+
+  return(
     <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
       {/* ── Top nav ── */}
       <div className="workspaceNav">
@@ -6421,7 +6423,13 @@ Return ONLY the recommendation text. No preamble, no headers.`;
                     <div style={{fontFamily:"var(--serif)",fontSize:15,fontWeight:800,color:"var(--navy)"}}>Project Pulse</div>
                     <div style={{fontSize:11,color:"var(--slate2)",marginTop:2}}>
                       {totalCount===0?"No observations — project looks good"
-                        :`${redCount>0?`${redCount} risk${redCount>1?"s":""}`:""} ${redCount>0&&amberCount>0?"· ":""} ${amberCount>0?`${amberCount} attention needed`:""} ${totalCount===redCount+amberCount&&totalCount>0?"":""}`}
+                        :(()=>{
+                          const parts=[];
+                          if(redCount>0) parts.push(redCount+" risk"+(redCount>1?"s":""));
+                          if(amberCount>0) parts.push(amberCount+" attention needed");
+                          return parts.join(" · ");
+                        })()
+                      }
                     </div>
                   </div>
                   <button className="iconBtn" onClick={()=>setPulseOpen(false)}>✕</button>
