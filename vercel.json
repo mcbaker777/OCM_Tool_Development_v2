@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "api/claude.js": {
-      "maxDuration": 300
-    }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
