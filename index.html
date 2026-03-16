@@ -5631,25 +5631,22 @@ Return ONLY the recommendation text. No preamble, no headers.`;
     const tasks=snap.tasks||{};
     const goLiveDate=snap.goLiveDate||initGoLiveDate||"";
     const rag=snap.rag||initRag||"none";
+    const selectedModules=Object.entries(aiPanelModules).filter(([,v])=>v).map(([k])=>k);
 
-    // Build project context summary
-    const projectSummary=`PROJECT: ${project.name}
-TIER: ${tier}
-GO-LIVE: ${goLiveDate||"Not set"}
-RAG: ${rag}
-DESCRIPTION: ${project.description?project.description.slice(0,800):"Not provided"}`;
+    const projectBase=`PROJECT: ${project.name}
+TIER: ${tier} | GO-LIVE: ${goLiveDate||"Not set"} | RAG: ${rag}
+${project.description?`DESCRIPTION: ${project.description.slice(0,400)}`:""}`;
 
     const ciaSummary=ciaEntries.length>0
-      ?ciaEntries.slice(0,12).map(e=>e.id+": "+(e.title||"Untitled")+" | "+(e.magnitude||"?")+" | Groups: "+((e.impactedGroups||[]).map(id=>(stakeholderGroups.find(g=>g.id===id)||{}).name||id).join(", ")||"none")).join("\n")
-      :"No CIA entries yet.";
+      ?ciaEntries.slice(0,10).map(e=>e.id+": "+(e.title||"Untitled")+" ("+e.magnitude+")").join("\n")
+      :"None yet.";
 
     const saSummary=stakeholderGroups.length>0
-      ?stakeholderGroups.slice(0,12).map(g=>{
+      ?stakeholderGroups.slice(0,10).map(g=>{
         const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
-        return g.id+": "+g.name+" | Disposition: "+(g.disposition||"?")+
-          " | A="+(row.awareness||"?")+" D="+(row.desire||"?")+" K="+(row.knowledge||"?")+" Ab="+(row.ability||"?")+" R="+(row.reinforcement||"?");
+        return g.id+": "+g.name+" | "+g.disposition+" | A="+(row.awareness||"?")+" D="+(row.desire||"?")+" K="+(row.knowledge||"?")+" Ab="+(row.ability||"?")+" R="+(row.reinforcement||"?");
       }).join("\n")
-      :"No stakeholder groups yet.";
+      :"None yet.";
 
     const allTasks=[];
     Object.entries(tasks).forEach(([lane,phases])=>{
@@ -5658,140 +5655,123 @@ DESCRIPTION: ${project.description?project.description.slice(0,800):"Not provide
       });
     });
     const mapSummary=allTasks.length>0
-      ?allTasks.filter(t=>t.status==="blocked"||t.status==="red"||t.status==="amber").slice(0,10).map(t=>t.lane+"/"+t.phase+": "+t.label+" ["+t.status+"]").join("\n")||
-        allTasks.slice(0,10).map(t=>t.lane+"/"+t.phase+": "+t.label+" ["+t.status+"]").join("\n")
-      :"No map tasks yet.";
+      ?allTasks.filter(t=>t.status==="blocked"||t.status==="red"||t.status==="amber").slice(0,8)
+        .map(t=>t.lane+"/"+t.phase+": "+t.label+" ["+t.status+"]").join("\n")||
+        allTasks.slice(0,8).map(t=>t.lane+"/"+t.phase+": "+t.label+" ["+t.status+"]").join("\n")
+      :"None yet.";
 
-    const selectedModules=Object.entries(aiPanelModules).filter(([,v])=>v).map(([k])=>k);
+    const laneList=(snap.lanes||initLanes||[]).join(", ");
+    const phaseList=(snap.phases||initPhases||[]).join(", ");
 
-    const prompt=`You are an expert OCM strategist acting as an intelligent project assistant. A practitioner has provided new information and wants you to analyze it against their current project data and suggest specific updates.
+    const newInfo=`NEW INFORMATION:
+${aiPanelContext.slice(0,2000)}
+${aiPanelNote.trim()?"NOTE: "+aiPanelNote:""}`;
 
-${projectSummary}
+    const repair=(raw)=>{
+      try{ return JSON.parse(raw); }catch(_){}
+      let a=raw.replace(/,\s*"[^"]*$/,"").replace(/:\s*"[^"]*$/,':""}').replace(/,\s*$/,"");
+      let o=0,ar=0;
+      for(const ch of a){if(ch==="{")o++;else if(ch==="}")o--;else if(ch==="[")ar++;else if(ch==="]")ar--;}
+      while(ar>0){a+="]";ar--;}while(o>0){a+="}";o--;}
+      try{ return JSON.parse(a); }catch(e){ throw new Error("Could not parse AI response — try fewer modules or less data."); }
+    };
 
-NEW INFORMATION FROM PRACTITIONER:
-${aiPanelContext.slice(0,3000)}
-${aiPanelNote.trim()?"PRACTITIONER NOTE: "+aiPanelNote:""}
-
-CURRENT PROJECT DATA:
-
-CHANGE IMPACT ANALYSIS:
-${ciaSummary}
-
-STAKEHOLDER ASSESSMENT:
-${saSummary}
-
-READINESS MAP (sample):
-${mapSummary}
-
-SELECTED MODULES TO UPDATE: ${selectedModules.join(", ")}
-
-Analyze the new information against the existing project data. Determine what it means for this project and suggest specific, actionable updates. Think like an experienced OCM practitioner — identify what has changed, what gaps the new information reveals, and what needs to be updated or added.
-
-Return ONLY valid JSON with this structure:
-{
-  "interpretation": "2-3 sentence plain-language summary of what the new information means for this project",
-  "cia": [
-    {
-      "action": "add" or "update",
-      "entryId": "existing entry ID if action is update, null if add",
-      "title": "change title",
-      "description": "what is changing and what people will experience",
-      "currentState": "how things work today",
-      "futureState": "how things will work after the change",
-      "magnitude": "High or Medium or Low",
-      "impactTypes": ["Process", "Tool/Technology", "Role", "Policy", "Behavior", "Reporting", "Org Structure"],
-      "implications": "people-side implications and what practitioners need to plan for",
-      "rationale": "why this suggestion is warranted by the new information"
-    }
-  ],
-  "sa": [
-    {
-      "action": "add" or "update",
-      "groupId": "existing group ID if action is update, null if add",
-      "groupName": "group name",
-      "department": "department if identifiable",
-      "disposition": "Supportive or Neutral or Resistant or Unknown",
-      "awareness": "High or Medium or Low or empty string",
-      "desire": "High or Medium or Low or empty string",
-      "knowledge": "High or Medium or Low or empty string",
-      "ability": "High or Medium or Low or empty string",
-      "reinforcement": "High or Medium or Low or empty string",
-      "barriersToChange": "suggested barrier text or empty string",
-      "wiifm": "suggested WIIFM text or empty string",
-      "rationale": "why this suggestion is warranted by the new information"
-    }
-  ],
-  "map": [
-    {
-      "action": "add",
-      "lane": "workstream name — must match an existing lane exactly",
-      "phase": "phase name — must match an existing phase exactly",
-      "label": "task label under 7 words",
-      "detail": "2-3 sentence task description",
-      "rationale": "why this task is warranted by the new information"
-    }
-  ]
-}
-
-Rules:
-- Only include suggestions that are genuinely warranted by the new information
-- Only include modules in your response that were selected: ${selectedModules.join(", ")}
-- For modules not selected, return an empty array
-- SA suggestions must reference groups by real names from the new information or existing groups
-- Map task lanes and phases must exactly match existing ones: Lanes: ${(snap.lanes||initLanes||[]).join(", ")} | Phases: ${(snap.phases||initPhases||[]).join(", ")}
-- Be specific — use real names, systems, and groups from the new information
-- Return empty arrays for modules where no updates are warranted`;
-
-    try{
+    const callAI=async(prompt)=>{
       const res=await fetch("/api/claude",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-5",
-          max_tokens:8000,
-          system:"You are an expert OCM strategist. Return ONLY valid JSON — no markdown, no explanation, no backticks. Never truncate. Always close every array and object.",
+          max_tokens:3000,
+          system:"You are an expert OCM strategist. Return ONLY valid JSON — no markdown, no explanation, no backticks. Always close every array and object.",
           messages:[{role:"user",content:prompt}]
         })
       });
       if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e?.error||"HTTP "+res.status);}
       const data=await res.json();
-      let raw=(data.content||[]).map(c=>c.text||"").join("").trim()
+      const raw=(data.content||[]).map(c=>c.text||"").join("").trim()
         .replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
-      // Progressive repair for truncated JSON
-      let parsed;
-      try{ parsed=JSON.parse(raw); }
-      catch(_){
-        let attempt=raw
-          .replace(/,\s*"[^"]*$/,"")
-          .replace(/:\s*"[^"]*$/,':""}')
-          .replace(/,\s*$/,"");
-        let opens=0,openArr=0;
-        for(const ch of attempt){ if(ch==="{") opens++; else if(ch==="}") opens--; else if(ch==="[") openArr++; else if(ch==="]") openArr--; }
-        while(openArr>0){attempt+="]";openArr--;}
-        while(opens>0){attempt+="}";opens--;}
-        try{ parsed=JSON.parse(attempt); }
-        catch(e2){ throw new Error("Could not parse AI response. Try with less project data or fewer modules selected."); }
+      return repair(raw);
+    };
+
+    try{
+      const results={cia:[],sa:[],map:[],interpretation:""};
+
+      // ── Call 1: Interpretation + CIA ──
+      if(selectedModules.includes("cia")||true){
+        const ciaPrompt=`${projectBase}
+
+CURRENT CIA ENTRIES:
+${ciaSummary}
+
+CURRENT STAKEHOLDER GROUPS:
+${saSummary}
+
+${newInfo}
+
+Analyze the new information. Return JSON:
+{"interpretation":"2-3 sentence plain-language summary of what the new information means for this project","cia":[{"action":"add or update","entryId":"existing ID if update else null","title":"change title","description":"what is changing","currentState":"today","futureState":"after change","magnitude":"High or Medium or Low","impactTypes":["Process","Tool/Technology","Role","Policy","Behavior","Reporting","Org Structure"],"implications":"people-side implications","rationale":"why warranted"}]}
+
+Rules: Only include CIA suggestions if they are genuinely warranted. Return empty array if not. impactTypes from allowed list only.`;
+        const r1=await callAI(ciaPrompt);
+        results.interpretation=r1.interpretation||"";
+        results.cia=r1.cia||[];
       }
-      // Add review state to each suggestion
+
+      // ── Call 2: SA ──
+      if(selectedModules.includes("sa")){
+        const saPrompt=`${projectBase}
+
+CURRENT STAKEHOLDER GROUPS:
+${saSummary}
+
+CURRENT CIA ENTRIES:
+${ciaSummary}
+
+${newInfo}
+
+Based on the new information, suggest stakeholder group updates. Return JSON:
+{"sa":[{"action":"add or update","groupId":"existing group ID if update else null","groupName":"group name","department":"dept if known","disposition":"Supportive or Neutral or Resistant or Unknown","awareness":"High or Medium or Low or empty","desire":"High or Medium or Low or empty","knowledge":"High or Medium or Low or empty","ability":"High or Medium or Low or empty","reinforcement":"High or Medium or Low or empty","barriersToChange":"text or empty","wiifm":"text or empty","rationale":"why warranted"}]}
+
+Rules: Only suggest where new information specifically supports it. Return empty array if not warranted.`;
+        const r2=await callAI(saPrompt);
+        results.sa=r2.sa||[];
+      }
+
+      // ── Call 3: Map tasks ──
+      if(selectedModules.includes("map")){
+        const mapPrompt=`${projectBase}
+
+CURRENT MAP TASKS (at-risk sample):
+${mapSummary}
+
+AVAILABLE LANES: ${laneList}
+AVAILABLE PHASES: ${phaseList}
+
+${newInfo}
+
+Suggest new readiness map tasks based on the new information. Return JSON:
+{"map":[{"action":"add","lane":"exact lane name from list above","phase":"exact phase name from list above","label":"task label under 7 words","detail":"2-3 sentence description","rationale":"why warranted"}]}
+
+Rules: Lane and phase must exactly match the available options above. Return empty array if no tasks are warranted.`;
+        const r3=await callAI(mapPrompt);
+        results.map=r3.map||[];
+      }
+
       const withState=(arr,module)=>(arr||[]).map((s,i)=>({
-        ...s,
-        _id:module+"_"+Date.now()+"_"+i,
-        _accepted:false,
-        _dismissed:false,
-        _editing:false,
+        ...s,_id:module+"_"+Date.now()+"_"+i,_accepted:false,_dismissed:false,_editing:false,
       }));
       setAiPanelSuggestions({
-        interpretation:parsed.interpretation||"",
-        cia:withState(parsed.cia,"cia"),
-        sa:withState(parsed.sa,"sa"),
-        map:withState(parsed.map,"map"),
+        interpretation:results.interpretation,
+        cia:withState(results.cia,"cia"),
+        sa:withState(results.sa,"sa"),
+        map:withState(results.map,"map"),
       });
     }catch(e){
       setAiPanelError("Analysis failed: "+e.message);
     }
     setAiPanelLoading(false);
   };
-
   const acceptAiSuggestion=(module,suggestion)=>{
     if(module==="cia"){
       if(suggestion.action==="add"){
