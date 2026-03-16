@@ -527,47 +527,59 @@
   .workspaceNav{
     display:flex; align-items:center; gap:0;
     background:var(--navy2); border-bottom:2px solid #2a1e16;
-    padding:0 16px; height:54px; flex-shrink:0;
+    padding:0 16px; height:58px; flex-shrink:0;
   }
   .workspaceNav .navBrand{
     display:flex; align-items:baseline; gap:0;
-    margin-right:20px; white-space:nowrap; flex-shrink:0; user-select:none;
+    margin-right:18px; white-space:nowrap; flex-shrink:0; user-select:none;
   }
   .workspaceNav .navBrand .brand-ocm{
-    font-family:var(--serif); font-size:22px; font-weight:900; letter-spacing:-.01em;
-    color:#c96a3a; line-height:1; margin-right:6px;
+    font-family:var(--serif); font-size:26px; font-weight:900; letter-spacing:-.01em;
+    color:#c96a3a; line-height:1; margin-right:0;
   }
   .workspaceNav .navBrand .brand-studio{
-    font-family:var(--serif); font-size:22px; font-weight:900; letter-spacing:-.01em;
+    font-family:var(--serif); font-size:26px; font-weight:900; letter-spacing:-.01em;
     color:#fdfbf7; line-height:1;
   }
   .workspaceNav .navBrand .brand-divider{
-    width:1px; height:14px; background:#c96a3a; opacity:.5;
-    margin:0 10px; align-self:center; flex-shrink:0;
+    width:1px; height:16px; background:#c96a3a; opacity:.4;
+    margin:0 12px; align-self:center; flex-shrink:0;
   }
   .workspaceNav .navBrand .brand-project{
-    font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.04em;
-    color:#9a8e82; overflow:hidden; text-overflow:ellipsis; max-width:200px;
+    font-family:var(--mono); font-size:12px; font-weight:700; letter-spacing:.04em;
+    color:#b8a898; overflow:hidden; text-overflow:ellipsis; max-width:220px;
   }
+  /* Module tabs — primary nav with subtle tinted chips */
   .navTab{
     display:flex; align-items:center; gap:7px;
-    padding:0 15px; height:54px; border:none; cursor:pointer;
-    background:transparent; color:#9a8e82;
+    padding:0 14px; height:58px; border:none; cursor:pointer;
+    background:transparent; color:#7a6e62;
     font-family:var(--mono); font-size:11px; font-weight:900;
     letter-spacing:.06em; border-bottom:3px solid transparent;
     transition:all .15s; white-space:nowrap; flex-shrink:0;
   }
   .navTab:hover{ color:#e8e0d4; background:rgba(255,255,255,.05); }
-  .navTab.active{ color:#fdfbf7; border-bottom-color:#c96a3a; background:rgba(201,106,58,.1); }
-  .navTab.active.sa{ border-bottom-color:#4a9e6a; background:rgba(74,158,106,.1); }
+  /* Readiness Map — orange */
+  .navTab.map{ color:#b8784a; }
+  .navTab.map:hover{ color:#e8a878; background:rgba(201,106,58,.08); }
+  .navTab.map.active{ color:#fdfbf7; border-bottom-color:#c96a3a; background:rgba(201,106,58,.14); }
+  /* CIA — amber/red */
+  .navTab.cia{ color:#9a7a50; }
+  .navTab.cia:hover{ color:#d4a878; background:rgba(180,120,50,.08); }
+  .navTab.cia.active{ color:#fdfbf7; border-bottom-color:#c48a1a; background:rgba(196,138,26,.14); }
+  /* SA — green */
+  .navTab.sa{ color:#4a7a5a; }
+  .navTab.sa:hover{ color:#7ab890; background:rgba(74,158,106,.08); }
+  .navTab.sa.active{ color:#fdfbf7; border-bottom-color:#4a9e6a; background:rgba(74,158,106,.14); }
   .navBadge{
     font-size:10px; font-weight:900; padding:1px 6px; border-radius:10px;
     background:rgba(255,255,255,.08); color:#9a8e82;
   }
-  .navTab.active .navBadge{ background:rgba(201,106,58,.3); color:#f0c8a8; }
-  .navTab.active.sa .navBadge{ background:rgba(74,158,106,.3); color:#a8d8b8; }
+  .navTab.map.active .navBadge{ background:rgba(201,106,58,.3); color:#f0c8a8; }
+  .navTab.cia.active .navBadge{ background:rgba(196,138,26,.3); color:#f0d898; }
+  .navTab.sa.active .navBadge{ background:rgba(74,158,106,.3); color:#a8d8b8; }
   .navSpacer{ flex:1; }
-  .navDivider{ width:1px; height:24px; background:#2a1e16; margin:0 6px; flex-shrink:0; }
+  .navDivider{ width:1px; height:28px; background:#2a1e16; margin:0 8px; flex-shrink:0; }
 
   /* ── Page views ── */
   .pageView{ flex:1; overflow:hidden; display:flex; flex-direction:column; background:var(--off); }
@@ -5220,6 +5232,7 @@ tbody tr:hover td{background:#faf7f2;}
 
   // ── Pulse — rule-based observation engine ──
   const [pulseOpen,setPulseOpen]=useState(false);
+  const [pulseTab,setPulseTab]=useState("monitor"); // "monitor" | "update"
   const [pulseRec,setPulseRec]=useState({}); // {obsId: {loading, result, error}}
   const pulseRef=useRef(null);
 
@@ -5502,14 +5515,7 @@ Return ONLY the recommendation text. No preamble, no headers.`;
   const [aiPanelLoading,setAiPanelLoading]=useState(false);
   const [aiPanelError,setAiPanelError]=useState("");
   const [aiPanelSuggestions,setAiPanelSuggestions]=useState(null); // {cia:[...],sa:[...],map:[...]}
-  const aiPanelRef=useRef(null);
 
-  useEffect(()=>{
-    if(!aiPanelOpen) return;
-    const handler=(e)=>{ if(aiPanelRef.current&&!aiPanelRef.current.contains(e.target)) setAiPanelOpen(false); };
-    document.addEventListener("mousedown",handler);
-    return()=>document.removeEventListener("mousedown",handler);
-  },[aiPanelOpen]);
 
   const runUnifiedAi=async()=>{
     if(!aiPanelContext.trim()){setAiPanelError("Please paste or type some information first.");return;}
@@ -5764,13 +5770,13 @@ Rules:
         </div>
         <div className="navDivider"/>
 
-        <button className={`navTab${currentView==="map"?" active":""}`}
+        <button className={`navTab map${currentView==="map"?" active":""}`}
           onClick={()=>setCurrentView("map")}>
           Readiness Map
-          {currentView==="map"&&<span className="navBadge">↙</span>}
+          {ciaAssessedCount>0&&<span className="navBadge">↙</span>}
         </button>
 
-        <button className={`navTab${currentView==="cia"?" active":""}`}
+        <button className={`navTab cia${currentView==="cia"?" active":""}`}
           onClick={()=>setCurrentView("cia")}>
           Change Impact Analysis
           {ciaAssessedCount>0&&<span className="navBadge">{ciaAssessedCount}</span>}
@@ -5784,329 +5790,308 @@ Rules:
 
         <div className="navSpacer"/>
 
-        {/* ── Pulse bell icon ── */}
+        {/* ── Unified Pulse ── */}
         {!viewOnly&&(
           <div style={{position:"relative"}} ref={pulseRef}>
             <button
-              onClick={()=>setPulseOpen(v=>!v)}
+              onClick={()=>{
+                if(!pulseOpen){ setPulseTab(totalCount>0?"monitor":"update"); }
+                setPulseOpen(v=>!v);
+                setAiPanelOpen(false);
+              }}
               style={{
                 display:"flex",alignItems:"center",gap:6,
                 background:pulseOpen?"rgba(232,221,208,.15)":"transparent",
-                border:"none",cursor:"pointer",padding:"6px 10px",borderRadius:8,
-                color:redCount>0?"#cc5050":amberCount>0?"#d4a020":"#9a8e82",
-                transition:"all .12s",position:"relative",
+                border:"none",cursor:"pointer",padding:"6px 12px",borderRadius:8,
+                color:redCount>0?"#cc5050":amberCount>0?"#d4a020":pulseOpen?"#c96a3a":"#9a8e82",
+                transition:"all .12s",
               }}
-              title="Project Pulse — observations and recommendations"
+              title="Pulse — project intelligence"
             >
-              <span style={{fontSize:16}}>
+              <span style={{fontSize:15}}>
                 {redCount>0?"🔴":amberCount>0?"🟡":"🟢"}
               </span>
-              <span style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".06em",
-                color:redCount>0?"#cc5050":amberCount>0?"#d4a020":totalCount===0?"#9a8e82":"#4a9e6a"}}>
-                PULSE{totalCount>0?` · ${totalCount}`:""}
+              <span style={{fontFamily:"var(--mono)",fontSize:11,fontWeight:900,letterSpacing:".06em",
+                color:redCount>0?"#cc5050":amberCount>0?"#d4a020":pulseOpen?"#c96a3a":"#b8a898"}}>
+                PULSE{totalCount>0?" · "+totalCount:""}
               </span>
             </button>
 
-            {/* Pulse tray */}
+            {/* ── Unified Pulse tray ── */}
             {pulseOpen&&(
               <div style={{
                 position:"absolute",top:"calc(100% + 8px)",right:0,
-                width:420,maxHeight:520,
+                width:480,maxHeight:620,
                 background:"var(--white)",border:"1px solid var(--border)",
-                borderRadius:14,boxShadow:"0 8px 32px rgba(28,20,10,.16)",
+                borderRadius:14,boxShadow:"0 8px 32px rgba(28,20,10,.18)",
                 zIndex:2000,display:"flex",flexDirection:"column",overflow:"hidden",
               }}>
-                {/* Tray header */}
-                <div style={{padding:"14px 16px",borderBottom:"1px solid var(--border)",
-                  display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-                  <div>
-                    <div style={{fontFamily:"var(--serif)",fontSize:15,fontWeight:800,color:"var(--navy)"}}>Project Pulse</div>
-                    <div style={{fontSize:11,color:"var(--slate2)",marginTop:2}}>
-                      {totalCount===0?"No observations — project looks good"
-                        :(()=>{
-                          const parts=[];
-                          if(redCount>0) parts.push(redCount+" risk"+(redCount>1?"s":""));
-                          if(amberCount>0) parts.push(amberCount+" attention needed");
-                          return parts.join(" · ");
-                        })()
-                      }
+                {/* Panel header */}
+                <div style={{
+                  padding:"14px 16px 0",
+                  background:"linear-gradient(180deg,#1e1409 0%,#120d09 100%)",
+                  flexShrink:0,
+                }}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                    <div style={{display:"flex",alignItems:"baseline",gap:0,userSelect:"none"}}>
+                      <span style={{fontFamily:"var(--serif)",fontSize:18,fontWeight:900,color:"#c96a3a"}}>OCM</span>
+                      <span style={{fontFamily:"var(--serif)",fontSize:18,fontWeight:900,color:"#fdfbf7"}}>Studio</span>
+                      <span style={{fontFamily:"var(--mono)",fontSize:11,fontWeight:900,color:"#9a8e82",marginLeft:8,letterSpacing:".06em"}}>PULSE</span>
                     </div>
+                    <button className="iconBtn" style={{background:"rgba(255,255,255,.08)",border:"none",color:"#9a8e82"}}
+                      onClick={()=>setPulseOpen(false)}>✕</button>
                   </div>
-                  <button className="iconBtn" onClick={()=>setPulseOpen(false)}>✕</button>
-                </div>
-
-                {/* Observations list */}
-                <div style={{overflowY:"auto",flex:1,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
-                  {totalCount===0&&(
-                    <div style={{textAlign:"center",padding:"32px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
-                      <span style={{fontSize:28}}>✅</span>
-                      <div style={{fontSize:13,color:"var(--slate)",lineHeight:1.6}}>No observations at this time. Keep going — the Pulse updates automatically as your project data changes.</div>
-                    </div>
-                  )}
-                  {pulseObservations.map(obs=>{
-                    const rec=pulseRec[obs.id]||{};
-                    const sevColor=obs.severity==="red"?"#cc5050":obs.severity==="amber"?"#d4a020":"#5a8a70";
-                    const sevBg=obs.severity==="red"?"#fdf0f0":obs.severity==="amber"?"#fef8ec":"#f0f7f2";
-                    const sevBdr=obs.severity==="red"?"#f0c0c0":obs.severity==="amber"?"#f0e0a0":"#a8d8b8";
-                    const icon=obs.severity==="red"?"🔴":obs.severity==="amber"?"🟡":"🔵";
-                    return(
-                      <div key={obs.id} style={{background:sevBg,border:`1px solid ${sevBdr}`,borderRadius:10,padding:"12px 14px"}}>
-                        <div style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:6}}>
-                          <span style={{fontSize:12,flexShrink:0,marginTop:1}}>{icon}</span>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12,fontWeight:800,color:"var(--navy)",lineHeight:1.4,marginBottom:3}}>{obs.title}</div>
-                            <div style={{fontSize:11,color:"var(--slate)",lineHeight:1.5}}>{obs.why}</div>
-                          </div>
-                        </div>
-
-                        {/* Recommendation area */}
-                        {rec.result&&(
-                          <div style={{background:"var(--white)",borderRadius:8,padding:"10px 12px",
-                            border:"1px solid var(--border)",marginBottom:8,borderLeft:`3px solid ${sevColor}`}}>
-                            <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:sevColor,
-                              letterSpacing:".06em",marginBottom:5}}>RECOMMENDATION</div>
-                            <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.6}}>{rec.result}</div>
-                          </div>
+                  {/* Tabs */}
+                  <div style={{display:"flex",gap:0}}>
+                    {[["monitor","Monitor"],["update","Update"]].map(([tab,label])=>(
+                      <button key={tab} onClick={()=>setPulseTab(tab)}
+                        style={{
+                          flex:1,padding:"8px 0",border:"none",cursor:"pointer",
+                          background:"transparent",
+                          fontFamily:"var(--mono)",fontSize:11,fontWeight:900,letterSpacing:".06em",
+                          color:pulseTab===tab?"#fdfbf7":"#7a6e62",
+                          borderBottom:pulseTab===tab?"2px solid #c96a3a":"2px solid transparent",
+                          transition:"all .15s",
+                        }}>
+                        {tab==="monitor"&&totalCount>0&&(
+                          <span style={{
+                            display:"inline-flex",alignItems:"center",justifyContent:"center",
+                            width:16,height:16,borderRadius:"50%",marginRight:6,fontSize:9,fontWeight:900,
+                            background:redCount>0?"#cc5050":amberCount>0?"#d4a020":"#4a9e6a",
+                            color:"#fff",
+                          }}>{totalCount}</span>
                         )}
-                        {rec.error&&(
-                          <div style={{fontSize:11,color:"#b84040",padding:"6px 8px",background:"#fdf0f0",
-                            borderRadius:6,marginBottom:8}}>Could not generate recommendation: {rec.error}</div>
-                        )}
-
-                        {/* Action buttons */}
-                        <div style={{display:"flex",gap:6,marginTop:6}}>
-                          <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px"}}
-                            onClick={()=>applyPulseRec(obs)}>
-                            → Go to {obs.module==="cia"?"CIA":obs.module==="sa"?"SA":"Map"}
-                          </button>
-                          {!rec.result&&!rec.loading&&(
-                            <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px",
-                              borderColor:sevColor,color:sevColor}}
-                              onClick={()=>getPulseRec(obs)}>
-                              ✦ Get Recommendation
-                            </button>
-                          )}
-                          {rec.loading&&(
-                            <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px",
-                              borderColor:sevColor,color:sevColor,opacity:.6}} disabled>
-                              <span style={{width:10,height:10,border:`2px solid ${sevColor}33`,borderTopColor:sevColor,
-                                borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Thinking…
-                            </button>
-                          )}
-                          {rec.result&&!rec.applied&&(
-                            <button className="btn btn-primary" style={{fontSize:11,padding:"4px 12px"}}
-                              onClick={()=>applyPulseRec(obs)}>
-                              ✓ Accept & Go
-                            </button>
-                          )}
-                          {rec.result&&(
-                            <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px"}}
-                              onClick={()=>setPulseRec(prev=>({...prev,[obs.id]:{...prev[obs.id],result:null}}))}>
-                              Dismiss
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Tray footer */}
-                <div style={{padding:"10px 14px",borderTop:"1px solid var(--border)",flexShrink:0,
-                  fontSize:10,fontFamily:"var(--mono)",color:"var(--slate2)",letterSpacing:".04em"}}>
-                  PULSE updates automatically · Recommendations use Claude Sonnet
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {!viewOnly&&(
-          <div style={{position:"relative"}} ref={aiPanelRef}>
-            <button
-              className="navTab"
-              style={{fontSize:11,fontFamily:"var(--mono)",fontWeight:900,letterSpacing:".06em",gap:6,
-                color:aiPanelOpen?"#c96a3a":"#b8a898",
-                background:aiPanelOpen?"rgba(201,106,58,.08)":"transparent"}}
-              onClick={()=>setAiPanelOpen(v=>!v)}
-              title="Unified AI — bring new information to update your project"
-            >
-              ✦ AI
-            </button>
-
-            {/* ── Unified AI Panel tray ── */}
-            {aiPanelOpen&&(
-              <div style={{
-                position:"absolute",top:"calc(100% + 8px)",right:0,
-                width:520,maxHeight:600,
-                background:"var(--white)",border:"1px solid var(--border)",
-                borderRadius:14,boxShadow:"0 8px 32px rgba(28,20,10,.16)",
-                zIndex:2000,display:"flex",flexDirection:"column",overflow:"hidden",
-              }}>
-                {/* Header */}
-                <div style={{padding:"14px 16px",borderBottom:"1px solid var(--border)",
-                  display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-                  <div>
-                    <div style={{fontFamily:"var(--serif)",fontSize:15,fontWeight:800,color:"var(--navy)"}}>✦ AI Assistant</div>
-                    <div style={{fontSize:11,color:"var(--slate2)",marginTop:2}}>Bring new information — Pulse will decide what it means and suggest updates</div>
-                  </div>
-                  <button className="iconBtn" onClick={()=>setAiPanelOpen(false)}>✕</button>
-                </div>
-
-                <div style={{overflowY:"auto",flex:1,padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
-
-                  {/* Input area */}
-                  {!aiPanelSuggestions&&(
-                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                      <div>
-                        <label style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:5}}>
-                          NEW INFORMATION
-                        </label>
-                        <textarea className="inp" style={{width:"100%",minHeight:120,fontSize:12,padding:"9px 11px",lineHeight:1.6,resize:"vertical"}}
-                          value={aiPanelContext} onChange={e=>setAiPanelContext(e.target.value)}
-                          placeholder="Paste interview notes, a revised scope document, meeting minutes, stakeholder feedback, or any new information about the project…"/>
-                      </div>
-                      <div>
-                        <label style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:5}}>
-                          ADDITIONAL NOTE <span style={{fontWeight:400,textTransform:"none",letterSpacing:0}}>(optional)</span>
-                        </label>
-                        <input className="inp" style={{width:"100%",fontSize:12,padding:"8px 11px"}}
-                          value={aiPanelNote} onChange={e=>setAiPanelNote(e.target.value)}
-                          placeholder="e.g. Notes from Finance stakeholder interview, Updated scope doc…"/>
-                      </div>
-                      <div>
-                        <label style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:8}}>
-                          MODULES TO CONSIDER
-                        </label>
-                        <div style={{display:"flex",gap:8}}>
-                          {[["cia","Change Impact Analysis"],["sa","Stakeholder Assessment"],["map","Readiness Map"]].map(([key,label])=>(
-                            <label key={key} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",
-                              borderRadius:20,cursor:"pointer",border:"1.5px solid",
-                              borderColor:aiPanelModules[key]?"#c96a3a":"var(--border)",
-                              background:aiPanelModules[key]?"#fdf3ec":"transparent",
-                              fontSize:12,fontWeight:aiPanelModules[key]?700:400,
-                              color:aiPanelModules[key]?"#c96a3a":"var(--slate)"}}>
-                              <input type="checkbox" checked={aiPanelModules[key]}
-                                onChange={e=>setAiPanelModules(prev=>({...prev,[key]:e.target.checked}))}
-                                style={{display:"none"}}/>
-                              {aiPanelModules[key]?"✓ ":""}{label}
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                      {aiPanelError&&(
-                        <div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"9px 12px"}}>
-                          {aiPanelError}
-                        </div>
-                      )}
-                      <button className="btn btn-primary" style={{alignSelf:"flex-start",fontSize:13,padding:"9px 22px",display:"flex",alignItems:"center",gap:8}}
-                        onClick={runUnifiedAi} disabled={aiPanelLoading||!aiPanelContext.trim()}>
-                        {aiPanelLoading
-                          ?<><span style={{width:13,height:13,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Analyzing…</>
-                          :"✦ Analyze & Suggest Updates"}
+                        {label}
                       </button>
-                    </div>
-                  )}
+                    ))}
+                  </div>
+                </div>
 
-                  {/* Results */}
-                  {aiPanelSuggestions&&(
-                    <div style={{display:"flex",flexDirection:"column",gap:14}}>
-                      {/* Interpretation */}
-                      {aiPanelSuggestions.interpretation&&(
-                        <div style={{background:"#f0f7f2",border:"1px solid #a8d8b8",borderRadius:10,padding:"12px 14px",borderLeft:"3px solid #4a9e6a"}}>
-                          <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"#4a9e6a",letterSpacing:".06em",marginBottom:5}}>PULSE INTERPRETATION</div>
-                          <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.6}}>{aiPanelSuggestions.interpretation}</div>
-                        </div>
-                      )}
-
-                      {/* Module groups */}
-                      {[
-                        {key:"cia",label:"Change Impact Analysis",color:"#b84040",bg:"#fdf0f0",bdr:"#f0c0c0"},
-                        {key:"sa",label:"Stakeholder Assessment",color:"#5a7aae",bg:"#f0f4fd",bdr:"#b0c8e8"},
-                        {key:"map",label:"Readiness Map",color:"#c96a3a",bg:"#fdf3ec",bdr:"#f0d0b8"},
-                      ].map(({key,label,color,bg,bdr})=>{
-                        const suggestions=(aiPanelSuggestions[key]||[]).filter(s=>!s._dismissed);
-                        if(suggestions.length===0) return null;
-                        const pending=suggestions.filter(s=>!s._accepted);
-                        return(
-                          <div key={key} style={{border:"1px solid "+bdr,borderRadius:10,overflow:"hidden"}}>
-                            {/* Module header */}
-                            <div style={{background:bg,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                              <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,color,letterSpacing:".06em"}}>
-                                {label.toUpperCase()} — {suggestions.length} suggestion{suggestions.length!==1?"s":""}
-                              </div>
-                              {pending.length>0&&(
-                                <button className="btn btn-ghost" style={{fontSize:11,padding:"3px 10px",borderColor:color,color}}
-                                  onClick={()=>acceptAllInModule(key)}>
-                                  ✓ Accept All
-                                </button>
-                              )}
+                {/* ── Monitor tab ── */}
+                {pulseTab==="monitor"&&(
+                  <div style={{overflowY:"auto",flex:1,padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
+                    {totalCount===0&&(
+                      <div style={{textAlign:"center",padding:"32px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+                        <span style={{fontSize:28}}>✅</span>
+                        <div style={{fontSize:13,color:"var(--slate)",lineHeight:1.6}}>No observations at this time. Pulse updates automatically as your project data changes.</div>
+                        <button className="btn btn-ghost" style={{fontSize:12,marginTop:4,borderColor:"#c96a3a",color:"#c96a3a"}}
+                          onClick={()=>setPulseTab("update")}>
+                          ✦ Bring in new information →
+                        </button>
+                      </div>
+                    )}
+                    {pulseObservations.map(obs=>{
+                      const rec=pulseRec[obs.id]||{};
+                      const sevColor=obs.severity==="red"?"#cc5050":obs.severity==="amber"?"#d4a020":"#5a8a70";
+                      const sevBg=obs.severity==="red"?"#fdf0f0":obs.severity==="amber"?"#fef8ec":"#f0f7f2";
+                      const sevBdr=obs.severity==="red"?"#f0c0c0":obs.severity==="amber"?"#f0e0a0":"#a8d8b8";
+                      const icon=obs.severity==="red"?"🔴":obs.severity==="amber"?"🟡":"🔵";
+                      return(
+                        <div key={obs.id} style={{background:sevBg,border:"1px solid "+sevBdr,borderRadius:10,padding:"12px 14px"}}>
+                          <div style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:6}}>
+                            <span style={{fontSize:12,flexShrink:0,marginTop:1}}>{icon}</span>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,fontWeight:800,color:"var(--navy)",lineHeight:1.4,marginBottom:3}}>{obs.title}</div>
+                              <div style={{fontSize:11,color:"var(--slate)",lineHeight:1.5}}>{obs.why}</div>
                             </div>
-                            {/* Suggestions */}
-                            <div style={{display:"flex",flexDirection:"column",gap:0}}>
-                              {suggestions.map((s,si)=>(
-                                <div key={s._id} style={{
-                                  padding:"12px 14px",
-                                  borderTop:si>0?"1px solid var(--border)":"none",
-                                  background:s._accepted?"#f0f7f2":"var(--white)",
-                                  opacity:s._accepted?0.7:1,
-                                }}>
-                                  <div style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:s._editing?8:0}}>
-                                    <div style={{flex:1,minWidth:0}}>
-                                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-                                        <span style={{fontSize:10,fontWeight:900,fontFamily:"var(--mono)",
-                                          color:s.action==="add"?"#4a9e6a":"#c96a3a",
-                                          background:s.action==="add"?"#f0f7f2":"#fdf3ec",
-                                          borderRadius:4,padding:"1px 6px"}}>
-                                          {s.action==="add"?"+ ADD":"~ UPDATE"}
-                                        </span>
-                                        <div style={{fontSize:13,fontWeight:700,color:"var(--navy)"}}>
-                                          {key==="cia"?s.title:key==="sa"?s.groupName:s.label}
+                          </div>
+                          {rec.result&&(
+                            <div style={{background:"var(--white)",borderRadius:8,padding:"10px 12px",
+                              border:"1px solid var(--border)",marginBottom:8,borderLeft:"3px solid "+sevColor}}>
+                              <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:sevColor,
+                                letterSpacing:".06em",marginBottom:5}}>RECOMMENDATION</div>
+                              <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.6}}>{rec.result}</div>
+                            </div>
+                          )}
+                          {rec.error&&(
+                            <div style={{fontSize:11,color:"#b84040",padding:"6px 8px",background:"#fdf0f0",
+                              borderRadius:6,marginBottom:8}}>Could not generate recommendation: {rec.error}</div>
+                          )}
+                          <div style={{display:"flex",gap:6,marginTop:6}}>
+                            <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px"}}
+                              onClick={()=>applyPulseRec(obs)}>
+                              → Go to {obs.module==="cia"?"CIA":obs.module==="sa"?"SA":"Map"}
+                            </button>
+                            {!rec.result&&!rec.loading&&(
+                              <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px",
+                                borderColor:sevColor,color:sevColor}}
+                                onClick={()=>getPulseRec(obs)}>
+                                ✦ Get Recommendation
+                              </button>
+                            )}
+                            {rec.loading&&(
+                              <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px",
+                                borderColor:sevColor,color:sevColor,opacity:.6}} disabled>
+                                <span style={{width:10,height:10,border:"2px solid "+sevColor+"33",borderTopColor:sevColor,
+                                  borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Thinking…
+                              </button>
+                            )}
+                            {rec.result&&!rec.applied&&(
+                              <button className="btn btn-primary" style={{fontSize:11,padding:"4px 12px"}}
+                                onClick={()=>applyPulseRec(obs)}>
+                                ✓ Accept & Go
+                              </button>
+                            )}
+                            {rec.result&&(
+                              <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px"}}
+                                onClick={()=>setPulseRec(prev=>({...prev,[obs.id]:{...prev[obs.id],result:null}}))}>
+                                Dismiss
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* ── Update tab ── */}
+                {pulseTab==="update"&&(
+                  <div style={{overflowY:"auto",flex:1,padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
+                    {!aiPanelSuggestions&&(
+                      <>
+                        <div style={{fontSize:12,color:"var(--slate)",lineHeight:1.6}}>
+                          Bring new information to Pulse — interview notes, a revised scope document, stakeholder feedback, meeting minutes. Pulse will analyze it against your project and suggest specific updates.
+                        </div>
+                        <div>
+                          <label style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:5}}>
+                            NEW INFORMATION
+                          </label>
+                          <textarea className="inp" style={{width:"100%",minHeight:120,fontSize:12,padding:"9px 11px",lineHeight:1.6,resize:"vertical"}}
+                            value={aiPanelContext} onChange={e=>setAiPanelContext(e.target.value)}
+                            placeholder="Paste interview notes, a revised scope document, meeting minutes, stakeholder feedback, or any new information about the project…"/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:5}}>
+                            CONTEXT NOTE <span style={{fontWeight:400,textTransform:"none",letterSpacing:0}}>(optional)</span>
+                          </label>
+                          <input className="inp" style={{width:"100%",fontSize:12,padding:"8px 11px"}}
+                            value={aiPanelNote} onChange={e=>setAiPanelNote(e.target.value)}
+                            placeholder="e.g. Notes from Finance stakeholder interview, Updated scope document…"/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:8}}>
+                            MODULES TO CONSIDER
+                          </label>
+                          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                            {[["cia","CIA"],["sa","Stakeholder Assessment"],["map","Readiness Map"]].map(([key,label])=>(
+                              <label key={key} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",
+                                borderRadius:20,cursor:"pointer",border:"1.5px solid",
+                                borderColor:aiPanelModules[key]?"#c96a3a":"var(--border)",
+                                background:aiPanelModules[key]?"#fdf3ec":"transparent",
+                                fontSize:11,fontWeight:aiPanelModules[key]?900:400,
+                                color:aiPanelModules[key]?"#c96a3a":"var(--slate)"}}>
+                                <input type="checkbox" checked={aiPanelModules[key]}
+                                  onChange={e=>setAiPanelModules(prev=>({...prev,[key]:e.target.checked}))}
+                                  style={{display:"none"}}/>
+                                {aiPanelModules[key]?"✓ ":""}{label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                        {aiPanelError&&(
+                          <div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"9px 12px"}}>
+                            {aiPanelError}
+                          </div>
+                        )}
+                        <button className="btn btn-primary" style={{alignSelf:"flex-start",fontSize:13,padding:"9px 22px",display:"flex",alignItems:"center",gap:8}}
+                          onClick={runUnifiedAi} disabled={aiPanelLoading||!aiPanelContext.trim()}>
+                          {aiPanelLoading
+                            ?<><span style={{width:13,height:13,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Analyzing…</>
+                            :"✦ Analyze & Suggest Updates"}
+                        </button>
+                      </>
+                    )}
+
+                    {aiPanelSuggestions&&(
+                      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                        {aiPanelSuggestions.interpretation&&(
+                          <div style={{background:"#f0f7f2",border:"1px solid #a8d8b8",borderRadius:10,padding:"12px 14px",borderLeft:"3px solid #4a9e6a"}}>
+                            <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"#4a9e6a",letterSpacing:".06em",marginBottom:5}}>PULSE INTERPRETATION</div>
+                            <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.6}}>{aiPanelSuggestions.interpretation}</div>
+                          </div>
+                        )}
+                        {[
+                          {key:"cia",label:"Change Impact Analysis",color:"#b84040",bg:"#fdf0f0",bdr:"#f0c0c0"},
+                          {key:"sa",label:"Stakeholder Assessment",color:"#5a7aae",bg:"#f0f4fd",bdr:"#b0c8e8"},
+                          {key:"map",label:"Readiness Map",color:"#c96a3a",bg:"#fdf3ec",bdr:"#f0d0b8"},
+                        ].map(({key,label,color,bg,bdr})=>{
+                          const suggestions=(aiPanelSuggestions[key]||[]).filter(s=>!s._dismissed);
+                          if(suggestions.length===0) return null;
+                          const pending=suggestions.filter(s=>!s._accepted);
+                          return(
+                            <div key={key} style={{border:"1px solid "+bdr,borderRadius:10,overflow:"hidden"}}>
+                              <div style={{background:bg,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                                <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,color,letterSpacing:".06em"}}>
+                                  {label.toUpperCase()} — {suggestions.length} suggestion{suggestions.length!==1?"s":""}
+                                </div>
+                                {pending.length>0&&(
+                                  <button className="btn btn-ghost" style={{fontSize:11,padding:"3px 10px",borderColor:color,color}}
+                                    onClick={()=>acceptAllInModule(key)}>
+                                    ✓ Accept All
+                                  </button>
+                                )}
+                              </div>
+                              <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                                {suggestions.map((s,si)=>(
+                                  <div key={s._id} style={{
+                                    padding:"12px 14px",
+                                    borderTop:si>0?"1px solid var(--border)":"none",
+                                    background:s._accepted?"#f0f7f2":"var(--white)",
+                                    opacity:s._accepted?0.7:1,
+                                  }}>
+                                    <div style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:s._editing?8:0}}>
+                                      <div style={{flex:1,minWidth:0}}>
+                                        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                                          <span style={{fontSize:10,fontWeight:900,fontFamily:"var(--mono)",
+                                            color:s.action==="add"?"#4a9e6a":"#c96a3a",
+                                            background:s.action==="add"?"#f0f7f2":"#fdf3ec",
+                                            borderRadius:4,padding:"1px 6px"}}>
+                                            {s.action==="add"?"+ ADD":"~ UPDATE"}
+                                          </span>
+                                          <div style={{fontSize:13,fontWeight:700,color:"var(--navy)"}}>
+                                            {key==="cia"?s.title:key==="sa"?s.groupName:s.label}
+                                          </div>
                                         </div>
+                                        <div style={{fontSize:11,color:"var(--slate)",lineHeight:1.5,marginBottom:4}}>
+                                          {key==="cia"?s.description:key==="sa"?("Disposition: "+(s.disposition||"?")+
+                                            " | ADKAR: "+["awareness","desire","knowledge","ability","reinforcement"].map(k=>k[0].toUpperCase()+"="+(s[k]||"?")).join(" ")):
+                                            (s.lane+" / "+s.phase)}
+                                        </div>
+                                        <div style={{fontSize:11,color:"var(--slate2)",lineHeight:1.45,fontStyle:"italic"}}>{s.rationale}</div>
                                       </div>
-                                      <div style={{fontSize:11,color:"var(--slate)",lineHeight:1.5,marginBottom:4}}>
-                                        {key==="cia"?s.description:key==="sa"?("Disposition: "+(s.disposition||"?")+
-                                          " | ADKAR: "+["awareness","desire","knowledge","ability","reinforcement"].map(k=>k[0].toUpperCase()+"="+(s[k]||"?")).join(" ")):
-                                          (s.lane+" / "+s.phase)}
-                                      </div>
-                                      <div style={{fontSize:11,color:"var(--slate2)",lineHeight:1.45,fontStyle:"italic"}}>
-                                        {s.rationale}
+                                      <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+                                        {!s._accepted&&(
+                                          <>
+                                            <button className="btn btn-primary" style={{fontSize:11,padding:"4px 10px"}}
+                                              onClick={()=>acceptAiSuggestion(key,s)}>✓ Accept</button>
+                                            <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px"}}
+                                              onClick={()=>setAiPanelSuggestions(prev=>({...prev,[key]:prev[key].map(x=>x._id===s._id?{...x,_editing:!x._editing}:x)}))}>
+                                              ✏ Edit
+                                            </button>
+                                            <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px",color:"var(--slate2)"}}
+                                              onClick={()=>dismissAiSuggestion(key,s._id)}>Dismiss</button>
+                                          </>
+                                        )}
+                                        {s._accepted&&<span style={{fontSize:11,fontWeight:900,color:"#4a9e6a",padding:"4px 0"}}>✓ Applied</span>}
                                       </div>
                                     </div>
-                                    <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
-                                      {!s._accepted&&(
-                                        <>
-                                          <button className="btn btn-primary" style={{fontSize:11,padding:"4px 10px"}}
-                                            onClick={()=>acceptAiSuggestion(key,s)}>✓ Accept</button>
-                                          <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px"}}
-                                            onClick={()=>setAiPanelSuggestions(prev=>({...prev,[key]:prev[key].map(x=>x._id===s._id?{...x,_editing:!x._editing}:x)}))}>
-                                            ✏ Edit
-                                          </button>
-                                          <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px",color:"var(--slate2)"}}
-                                            onClick={()=>dismissAiSuggestion(key,s._id)}>Dismiss</button>
-                                        </>
-                                      )}
-                                      {s._accepted&&<span style={{fontSize:11,fontWeight:900,color:"#4a9e6a",padding:"4px 0"}}>✓ Applied</span>}
-                                    </div>
-                                  </div>
-                                  {/* Edit panel */}
-                                  {s._editing&&!s._accepted&&(
-                                    <div style={{background:"var(--off)",borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8,marginTop:8}}>
-                                      <div style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em"}}>EDIT BEFORE ACCEPTING</div>
-                                      {key==="cia"&&(
-                                        <>
-                                          <div>
-                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Title</div>
-                                            <input className="inp" style={{width:"100%",fontSize:12,padding:"6px 8px"}}
-                                              value={s.title||""} onChange={e=>updateSuggestionField(key,s._id,"title",e.target.value)}/>
-                                          </div>
-                                          <div>
-                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Description</div>
-                                            <textarea className="inp" style={{width:"100%",minHeight:60,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
-                                              value={s.description||""} onChange={e=>updateSuggestionField(key,s._id,"description",e.target.value)}/>
-                                          </div>
-                                          <div style={{display:"flex",gap:8}}>
-                                            <div style={{flex:1}}>
+                                    {s._editing&&!s._accepted&&(
+                                      <div style={{background:"var(--off)",borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8,marginTop:8}}>
+                                        <div style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em"}}>EDIT BEFORE ACCEPTING</div>
+                                        {key==="cia"&&(
+                                          <>
+                                            <div>
+                                              <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Title</div>
+                                              <input className="inp" style={{width:"100%",fontSize:12,padding:"6px 8px"}}
+                                                value={s.title||""} onChange={e=>updateSuggestionField(key,s._id,"title",e.target.value)}/>
+                                            </div>
+                                            <div>
+                                              <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Description</div>
+                                              <textarea className="inp" style={{width:"100%",minHeight:60,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
+                                                value={s.description||""} onChange={e=>updateSuggestionField(key,s._id,"description",e.target.value)}/>
+                                            </div>
+                                            <div>
                                               <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Magnitude</div>
                                               <select className="inp" style={{width:"100%",fontSize:12,padding:"5px 8px"}}
                                                 value={s.magnitude||""} onChange={e=>updateSuggestionField(key,s._id,"magnitude",e.target.value)}>
@@ -6116,23 +6101,21 @@ Rules:
                                                 <option value="Low">Low</option>
                                               </select>
                                             </div>
-                                          </div>
-                                          <div>
-                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>People-side Implications</div>
-                                            <textarea className="inp" style={{width:"100%",minHeight:56,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
-                                              value={s.implications||""} onChange={e=>updateSuggestionField(key,s._id,"implications",e.target.value)}/>
-                                          </div>
-                                        </>
-                                      )}
-                                      {key==="sa"&&(
-                                        <>
-                                          <div>
-                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Group Name</div>
-                                            <input className="inp" style={{width:"100%",fontSize:12,padding:"6px 8px"}}
-                                              value={s.groupName||""} onChange={e=>updateSuggestionField(key,s._id,"groupName",e.target.value)}/>
-                                          </div>
-                                          <div style={{display:"flex",gap:8}}>
-                                            <div style={{flex:1}}>
+                                            <div>
+                                              <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>People-side Implications</div>
+                                              <textarea className="inp" style={{width:"100%",minHeight:56,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
+                                                value={s.implications||""} onChange={e=>updateSuggestionField(key,s._id,"implications",e.target.value)}/>
+                                            </div>
+                                          </>
+                                        )}
+                                        {key==="sa"&&(
+                                          <>
+                                            <div>
+                                              <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Group Name</div>
+                                              <input className="inp" style={{width:"100%",fontSize:12,padding:"6px 8px"}}
+                                                value={s.groupName||""} onChange={e=>updateSuggestionField(key,s._id,"groupName",e.target.value)}/>
+                                            </div>
+                                            <div>
                                               <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Disposition</div>
                                               <select className="inp" style={{width:"100%",fontSize:12,padding:"5px 8px"}}
                                                 value={s.disposition||""} onChange={e=>updateSuggestionField(key,s._id,"disposition",e.target.value)}>
@@ -6140,68 +6123,70 @@ Rules:
                                                 {["Supportive","Neutral","Resistant","Unknown"].map(d=><option key={d} value={d}>{d}</option>)}
                                               </select>
                                             </div>
-                                          </div>
-                                          <div>
-                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Barriers to Change</div>
-                                            <textarea className="inp" style={{width:"100%",minHeight:52,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
-                                              value={s.barriersToChange||""} onChange={e=>updateSuggestionField(key,s._id,"barriersToChange",e.target.value)}/>
-                                          </div>
-                                          <div>
-                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>WIIFM</div>
-                                            <textarea className="inp" style={{width:"100%",minHeight:52,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
-                                              value={s.wiifm||""} onChange={e=>updateSuggestionField(key,s._id,"wiifm",e.target.value)}/>
-                                          </div>
-                                        </>
-                                      )}
-                                      {key==="map"&&(
-                                        <>
-                                          <div>
-                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Task Label</div>
-                                            <input className="inp" style={{width:"100%",fontSize:12,padding:"6px 8px"}}
-                                              value={s.label||""} onChange={e=>updateSuggestionField(key,s._id,"label",e.target.value)}/>
-                                          </div>
-                                          <div>
-                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Detail</div>
-                                            <textarea className="inp" style={{width:"100%",minHeight:60,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
-                                              value={s.detail||""} onChange={e=>updateSuggestionField(key,s._id,"detail",e.target.value)}/>
-                                          </div>
-                                        </>
-                                      )}
-                                      <div style={{display:"flex",gap:8}}>
-                                        <button className="btn btn-primary" style={{fontSize:11,padding:"5px 14px"}}
-                                          onClick={()=>acceptAiSuggestion(key,s)}>✓ Accept</button>
-                                        <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 12px"}}
-                                          onClick={()=>setAiPanelSuggestions(prev=>({...prev,[key]:prev[key].map(x=>x._id===s._id?{...x,_editing:false}:x)}))}>
-                                          Cancel
-                                        </button>
+                                            <div>
+                                              <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Barriers to Change</div>
+                                              <textarea className="inp" style={{width:"100%",minHeight:52,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
+                                                value={s.barriersToChange||""} onChange={e=>updateSuggestionField(key,s._id,"barriersToChange",e.target.value)}/>
+                                            </div>
+                                            <div>
+                                              <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>WIIFM</div>
+                                              <textarea className="inp" style={{width:"100%",minHeight:52,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
+                                                value={s.wiifm||""} onChange={e=>updateSuggestionField(key,s._id,"wiifm",e.target.value)}/>
+                                            </div>
+                                          </>
+                                        )}
+                                        {key==="map"&&(
+                                          <>
+                                            <div>
+                                              <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Task Label</div>
+                                              <input className="inp" style={{width:"100%",fontSize:12,padding:"6px 8px"}}
+                                                value={s.label||""} onChange={e=>updateSuggestionField(key,s._id,"label",e.target.value)}/>
+                                            </div>
+                                            <div>
+                                              <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Detail</div>
+                                              <textarea className="inp" style={{width:"100%",minHeight:60,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
+                                                value={s.detail||""} onChange={e=>updateSuggestionField(key,s._id,"detail",e.target.value)}/>
+                                            </div>
+                                          </>
+                                        )}
+                                        <div style={{display:"flex",gap:8}}>
+                                          <button className="btn btn-primary" style={{fontSize:11,padding:"5px 14px"}}
+                                            onClick={()=>acceptAiSuggestion(key,s)}>✓ Accept</button>
+                                          <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 12px"}}
+                                            onClick={()=>setAiPanelSuggestions(prev=>({...prev,[key]:prev[key].map(x=>x._id===s._id?{...x,_editing:false}:x)}))}>
+                                            Cancel
+                                          </button>
+                                        </div>
                                       </div>
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                        <button className="btn btn-ghost" style={{alignSelf:"flex-start",fontSize:12}}
+                          onClick={()=>{setAiPanelSuggestions(null);setAiPanelContext("");setAiPanelNote("");setAiPanelError("");}}>
+                          ↺ Start over with new information
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                      {/* Start over */}
-                      <button className="btn btn-ghost" style={{alignSelf:"flex-start",fontSize:12}}
-                        onClick={()=>{setAiPanelSuggestions(null);setAiPanelContext("");setAiPanelNote("");setAiPanelError("");}}>
-                        ↺ Start over with new information
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Footer */}
-                <div style={{padding:"10px 14px",borderTop:"1px solid var(--border)",flexShrink:0,
-                  fontSize:10,fontFamily:"var(--mono)",color:"var(--slate2)",letterSpacing:".04em"}}>
-                  Powered by Claude Sonnet · Nothing applies until you accept
+                {/* Panel footer */}
+                <div style={{padding:"8px 14px",borderTop:"1px solid var(--border)",flexShrink:0,
+                  background:"var(--off2)",
+                  display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:10,fontFamily:"var(--mono)",color:"var(--slate2)",letterSpacing:".04em"}}>
+                    {pulseTab==="monitor"?"Observations update automatically":"Powered by Claude Sonnet · Nothing applies until you accept"}
+                  </div>
                 </div>
               </div>
             )}
           </div>
         )}
+
 
         {!viewOnly&&(
           <button
