@@ -594,10 +594,10 @@
 
   /* ── SA detail panel ── */
   .detailSlide{
-    position:absolute; top:0; right:0; bottom:0; width:min(560px,55vw);
+    width:min(480px,42vw); flex-shrink:0;
     background:var(--white); border-left:1px solid var(--border);
     box-shadow:-8px 0 28px rgba(28,20,16,.10);
-    display:flex; flex-direction:column; overflow:hidden; z-index:10;
+    display:flex; flex-direction:column; overflow:hidden;
     animation: slideIn .2s ease;
   }
   @keyframes slideIn{ from{transform:translateX(40px);opacity:0} to{transform:translateX(0);opacity:1} }
@@ -4022,7 +4022,7 @@ function CIAPage({entries,stakeholderGroups,lanes,phases,onAdd,onAddWithData,onU
 
         {/* ── Detail panel ── */}
         {activeId&&active&&(
-          <div className="detailSlide" style={{width:"min(560px,55vw)"}}>
+          <div className="detailSlide">
             <div className="detailSlideHeader">
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)",marginBottom:3}}>{active.id}</div>
@@ -4245,6 +4245,12 @@ function SAPage({groups,rows,ciaEntries,showIndicators,setShowIndicators,adkarDo
     document.addEventListener("mousedown",handler);
     return()=>document.removeEventListener("mousedown",handler);
   },[adkarPopover]);
+  useEffect(()=>{
+    if(!numPopover) return;
+    const handler=()=>setNumPopover(null);
+    document.addEventListener("mousedown",handler);
+    return()=>document.removeEventListener("mousedown",handler);
+  },[numPopover]);
 
   // ── Filter state ──
   const [filterDept,setFilterDept]=useState("");
@@ -4253,7 +4259,8 @@ function SAPage({groups,rows,ciaEntries,showIndicators,setShowIndicators,adkarDo
   const [filterImpact,setFilterImpact]=useState("");
   const [filterInfluence,setFilterInfluence]=useState("");
   const [filterAdkar,setFilterAdkar]=useState(""); // "full"|"partial"|"none"
-  const [adkarPopover,setAdkarPopover]=useState(null); // {groupId, dim, rect}
+  const [adkarPopover,setAdkarPopover]=useState(null); // {groupId, dim}
+  const [numPopover,setNumPopover]=useState(null); // {groupId, field} for impact/influence
 
   const active=groups.find(g=>g.id===activeId);
   const activeRow=rows.find(r=>r.groupId===activeId)||{};
@@ -4434,7 +4441,18 @@ Keep responses concise and actionable. Format with clear sections.`;
           {/* Heat map table */}
           {groups.length>0&&(
             <div style={{background:"var(--white)",border:"1px solid var(--border)",borderRadius:12,overflowX:"auto",width:"100%"}}>
-              <table style={{borderCollapse:"collapse",tableLayout:"auto",width:"100%"}}>
+              <table style={{borderCollapse:"collapse",tableLayout:"fixed",width:"100%"}}>
+                <colgroup>
+                  <col style={{width:"18%"}}/>
+                  <col style={{width:"13%"}}/>
+                  <col style={{width:"8%"}}/>
+                  <col style={{width:"5%"}}/>
+                  <col style={{width:"5%"}}/>
+                  <col style={{width:"10%"}}/>
+                  {ADKAR_DIMS.map(d=><col key={d} style={{width:"5%"}}/>)}
+                  <col style={{width:"4%"}}/>
+                  <col style={{width:"3%"}}/>
+                </colgroup>
                 <thead>
                   <tr style={{background:"var(--off)"}}>
                     <th style={{textAlign:"left",fontFamily:"var(--mono)",fontSize:10,fontWeight:900,
@@ -4501,34 +4519,90 @@ Keep responses concise and actionable. Format with clear sections.`;
                             {STAKEHOLDER_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
                           </select>
                         </td>
-                        {/* Impact 1-5 — scroll circle */}
-                        <td style={{textAlign:"center",padding:"10px 8px",verticalAlign:"middle"}} onClick={e=>e.stopPropagation()}>
-                          <div
-                            onWheel={e=>{e.preventDefault();e.stopPropagation();const next=e.deltaY<0?Math.min(5,imp+1):Math.max(0,imp-1);onUpdateGroup(g.id,{impactLevel:String(next)});}}
-                            title={"Impact: "+(imp||"not set")+" — scroll to change"}
-                            style={{width:30,height:30,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",
-                              cursor:"ns-resize",userSelect:"none",
-                              background:imp===0?"var(--off2)":imp>=4?"#b84040":imp>=3?"#c48a1a":"#4a9e6a",
-                              fontFamily:"var(--mono)",fontSize:11,fontWeight:900,
-                              color:imp===0?"var(--slate2)":"#fff",
-                              boxShadow:"0 1px 3px rgba(0,0,0,.1)"}}>
-                            {imp===0?"—":imp}
-                          </div>
-                        </td>
-                        {/* Influence 1-5 — scroll circle */}
-                        <td style={{textAlign:"center",padding:"10px 8px",verticalAlign:"middle"}} onClick={e=>e.stopPropagation()}>
-                          <div
-                            onWheel={e=>{e.preventDefault();e.stopPropagation();const next=e.deltaY<0?Math.min(5,inf+1):Math.max(0,inf-1);onUpdateGroup(g.id,{influence:String(next)});}}
-                            title={"Influence: "+(inf||"not set")+" — scroll to change"}
-                            style={{width:30,height:30,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",
-                              cursor:"ns-resize",userSelect:"none",
-                              background:inf===0?"var(--off2)":inf>=4?"#8a5a9e":inf>=3?"#5a7aae":"#4a9e6a",
-                              fontFamily:"var(--mono)",fontSize:11,fontWeight:900,
-                              color:inf===0?"var(--slate2)":"#fff",
-                              boxShadow:"0 1px 3px rgba(0,0,0,.1)"}}>
-                            {inf===0?"—":inf}
-                          </div>
-                        </td>
+                        {/* Impact 1-5 — popover circle */}
+                        {(()=>{
+                          const isImpOpen=numPopover&&numPopover.groupId===g.id&&numPopover.field==="impactLevel";
+                          return(
+                            <td style={{textAlign:"center",padding:"10px 4px",verticalAlign:"middle",position:"relative"}} onClick={e=>e.stopPropagation()}>
+                              <button
+                                onClick={e=>{e.stopPropagation();setNumPopover(isImpOpen?null:{groupId:g.id,field:"impactLevel"});}}
+                                style={{width:28,height:28,borderRadius:"50%",border:"none",cursor:"pointer",
+                                  display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0,
+                                  background:imp===0?"var(--off2)":imp>=4?"#b84040":imp>=3?"#c48a1a":"#4a9e6a",
+                                  fontFamily:"var(--mono)",fontSize:11,fontWeight:900,
+                                  color:imp===0?"var(--slate2)":"#fff",
+                                  boxShadow:isImpOpen?"0 0 0 3px #c96a3a55":"0 1px 3px rgba(0,0,0,.15)"}}>
+                                {imp===0?"—":imp}
+                              </button>
+                              {isImpOpen&&(
+                                <div style={{position:"fixed",zIndex:9999,background:"var(--white)",border:"1px solid var(--border)",
+                                  borderRadius:8,boxShadow:"0 4px 14px rgba(28,20,10,.18)",padding:4,
+                                  display:"flex",flexDirection:"column",gap:2,minWidth:60}}
+                                  ref={el=>{
+                                    if(el){
+                                      const btn=el.previousSibling;
+                                      if(btn){const r=btn.getBoundingClientRect();el.style.left=(r.left+r.width/2-30)+"px";el.style.top=(r.top-el.offsetHeight-6)+"px";}
+                                    }
+                                  }}>
+                                  {[0,1,2,3,4,5].map(n=>(
+                                    <button key={n}
+                                      onClick={e=>{e.stopPropagation();onUpdateGroup(g.id,{impactLevel:n===0?"":String(n)});setNumPopover(null);}}
+                                      style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",borderRadius:5,
+                                        border:"none",cursor:"pointer",
+                                        background:imp===n?"var(--off2)":"transparent",
+                                        fontSize:11,fontFamily:"var(--mono)",fontWeight:900,
+                                        color:n===0?"var(--slate2)":n>=4?"#b84040":n>=3?"#c48a1a":"#4a9e6a"}}>
+                                      {n===0?"— clear":<><span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,display:"inline-block",
+                                        background:n>=4?"#b84040":n>=3?"#c48a1a":"#4a9e6a"}}/>{n}</>}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })()}
+                        {/* Influence 1-5 — popover circle */}
+                        {(()=>{
+                          const isInfOpen=numPopover&&numPopover.groupId===g.id&&numPopover.field==="influence";
+                          return(
+                            <td style={{textAlign:"center",padding:"10px 4px",verticalAlign:"middle",position:"relative"}} onClick={e=>e.stopPropagation()}>
+                              <button
+                                onClick={e=>{e.stopPropagation();setNumPopover(isInfOpen?null:{groupId:g.id,field:"influence"});}}
+                                style={{width:28,height:28,borderRadius:"50%",border:"none",cursor:"pointer",
+                                  display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0,
+                                  background:inf===0?"var(--off2)":inf>=4?"#8a5a9e":inf>=3?"#5a7aae":"#4a9e6a",
+                                  fontFamily:"var(--mono)",fontSize:11,fontWeight:900,
+                                  color:inf===0?"var(--slate2)":"#fff",
+                                  boxShadow:isInfOpen?"0 0 0 3px #c96a3a55":"0 1px 3px rgba(0,0,0,.15)"}}>
+                                {inf===0?"—":inf}
+                              </button>
+                              {isInfOpen&&(
+                                <div style={{position:"fixed",zIndex:9999,background:"var(--white)",border:"1px solid var(--border)",
+                                  borderRadius:8,boxShadow:"0 4px 14px rgba(28,20,10,.18)",padding:4,
+                                  display:"flex",flexDirection:"column",gap:2,minWidth:60}}
+                                  ref={el=>{
+                                    if(el){
+                                      const btn=el.previousSibling;
+                                      if(btn){const r=btn.getBoundingClientRect();el.style.left=(r.left+r.width/2-30)+"px";el.style.top=(r.top-el.offsetHeight-6)+"px";}
+                                    }
+                                  }}>
+                                  {[0,1,2,3,4,5].map(n=>(
+                                    <button key={n}
+                                      onClick={e=>{e.stopPropagation();onUpdateGroup(g.id,{influence:n===0?"":String(n)});setNumPopover(null);}}
+                                      style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",borderRadius:5,
+                                        border:"none",cursor:"pointer",
+                                        background:inf===n?"var(--off2)":"transparent",
+                                        fontSize:11,fontFamily:"var(--mono)",fontWeight:900,
+                                        color:n===0?"var(--slate2)":n>=4?"#8a5a9e":n>=3?"#5a7aae":"#4a9e6a"}}>
+                                      {n===0?"— clear":<><span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,display:"inline-block",
+                                        background:n>=4?"#8a5a9e":n>=3?"#5a7aae":"#4a9e6a"}}/>{n}</>}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })()}
                         {/* Disposition */}
                         <td style={{textAlign:"center",padding:"14px 8px",verticalAlign:"middle"}} onClick={e=>e.stopPropagation()}>
                           <select className="inp" style={{fontSize:11,padding:"4px 8px",
