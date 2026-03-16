@@ -5640,19 +5640,14 @@ RAG: ${rag}
 DESCRIPTION: ${project.description?project.description.slice(0,800):"Not provided"}`;
 
     const ciaSummary=ciaEntries.length>0
-      ?ciaEntries.map(e=>`${e.id}: ${e.title||"Untitled"} | ${e.magnitude||"?"} magnitude | Groups: ${(e.impactedGroups||[]).map(id=>stakeholderGroups.find(g=>g.id===id)?.name||id).join(", ")||"none"} | ${e.description||""}`).join("\n")
+      ?ciaEntries.slice(0,12).map(e=>e.id+": "+(e.title||"Untitled")+" | "+(e.magnitude||"?")+" | Groups: "+((e.impactedGroups||[]).map(id=>(stakeholderGroups.find(g=>g.id===id)||{}).name||id).join(", ")||"none")).join("\n")
       :"No CIA entries yet.";
 
     const saSummary=stakeholderGroups.length>0
-      ?stakeholderGroups.map(g=>{
+      ?stakeholderGroups.slice(0,12).map(g=>{
         const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
-        return g.id+": "+g.name+" | "+g.department+" | Disposition: "+(g.disposition||"?")+
-          " | ADKAR: A="+(row.awareness||"?")+
-          " D="+(row.desire||"?")+
-          " K="+(row.knowledge||"?")+
-          " Ab="+(row.ability||"?")+
-          " R="+(row.reinforcement||"?")+
-          " | Barriers: "+(row.barriersToChange||"none");
+        return g.id+": "+g.name+" | Disposition: "+(g.disposition||"?")+
+          " | A="+(row.awareness||"?")+" D="+(row.desire||"?")+" K="+(row.knowledge||"?")+" Ab="+(row.ability||"?")+" R="+(row.reinforcement||"?");
       }).join("\n")
       :"No stakeholder groups yet.";
 
@@ -5663,7 +5658,8 @@ DESCRIPTION: ${project.description?project.description.slice(0,800):"Not provide
       });
     });
     const mapSummary=allTasks.length>0
-      ?allTasks.slice(0,20).map(t=>t.lane+"/"+t.phase+": "+t.label+" ["+t.status+"]").join("\n")
+      ?allTasks.filter(t=>t.status==="blocked"||t.status==="red"||t.status==="amber").slice(0,10).map(t=>t.lane+"/"+t.phase+": "+t.label+" ["+t.status+"]").join("\n")||
+        allTasks.slice(0,10).map(t=>t.lane+"/"+t.phase+": "+t.label+" ["+t.status+"]").join("\n")
       :"No map tasks yet.";
 
     const selectedModules=Object.entries(aiPanelModules).filter(([,v])=>v).map(([k])=>k);
@@ -5752,16 +5748,30 @@ Rules:
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-5",
-          max_tokens:4000,
-          system:"You are an expert OCM strategist. Return ONLY valid JSON — no markdown, no explanation, no backticks. Never truncate.",
+          max_tokens:8000,
+          system:"You are an expert OCM strategist. Return ONLY valid JSON — no markdown, no explanation, no backticks. Never truncate. Always close every array and object.",
           messages:[{role:"user",content:prompt}]
         })
       });
       if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e?.error||"HTTP "+res.status);}
       const data=await res.json();
-      const raw=(data.content||[]).map(c=>c.text||"").join("").trim()
+      let raw=(data.content||[]).map(c=>c.text||"").join("").trim()
         .replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
-      const parsed=JSON.parse(raw);
+      // Progressive repair for truncated JSON
+      let parsed;
+      try{ parsed=JSON.parse(raw); }
+      catch(_){
+        let attempt=raw
+          .replace(/,\s*"[^"]*$/,"")
+          .replace(/:\s*"[^"]*$/,':""}')
+          .replace(/,\s*$/,"");
+        let opens=0,openArr=0;
+        for(const ch of attempt){ if(ch==="{") opens++; else if(ch==="}") opens--; else if(ch==="[") openArr++; else if(ch==="]") openArr--; }
+        while(openArr>0){attempt+="]";openArr--;}
+        while(opens>0){attempt+="}";opens--;}
+        try{ parsed=JSON.parse(attempt); }
+        catch(e2){ throw new Error("Could not parse AI response. Try with less project data or fewer modules selected."); }
+      }
       // Add review state to each suggestion
       const withState=(arr,module)=>(arr||[]).map((s,i)=>({
         ...s,
