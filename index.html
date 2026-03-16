@@ -579,6 +579,14 @@
   .navTab.cia.active .navBadge{ background:rgba(196,138,26,.3); color:#f0d898; }
   .navTab.sa.active .navBadge{ background:rgba(74,158,106,.3); color:#a8d8b8; }
   .navSpacer{ flex:1; }
+  .dragHandle{
+    cursor:grab; color:var(--slate2); opacity:0; transition:opacity .15s;
+    font-size:14px; line-height:1; padding:0 4px; flex-shrink:0; user-select:none;
+  }
+  .dragHandle:active{ cursor:grabbing; }
+  tr:hover .dragHandle, .laneRow:hover .dragHandle, .ciaEntryRow:hover .dragHandle{ opacity:1; }
+  .dragging-row{ opacity:.4; }
+  .drag-over-row{ border-top:2px solid #c96a3a !important; }
   .navDivider{ width:1px; height:28px; background:#2a1e16; margin:0 8px; flex-shrink:0; }
 
   /* ── Page views ── */
@@ -1573,6 +1581,17 @@ function Stage4({project,tier,initLanes,initPhases,initialTasks,aiGenerated,init
 
   const [leftCollapsed,setLeftCollapsed]=useState(false);
   const [sidebarTab,setSidebarTab]=useState("workstreams");
+  const [dragLaneIdx,setDragLaneIdx]=useState(null);
+  const [dragLaneOver,setDragLaneOver]=useState(null);
+  const reorderLanes=(fromIdx,toIdx)=>{
+    if(fromIdx===toIdx) return;
+    setLanes(prev=>{
+      const arr=[...prev];
+      const [item]=arr.splice(fromIdx,1);
+      arr.splice(toIdx,0,item);
+      return arr;
+    });
+  };
 
   const [drawerCollapsed,setDrawerCollapsed]=useState(true);
 
@@ -2617,11 +2636,20 @@ function Stage4({project,tier,initLanes,initPhases,initialTasks,aiGenerated,init
                 </div>
 
                 <div style={{display:"flex",flexDirection:"column",gap:10,paddingBottom:12}}>
-                  {lanes.map(lane=>{
+                  {lanes.map((lane,li)=>{
                     const isOn = laneVisible[lane]!==false;
                     const laneColor = lc(lane);
+                    const isSbDragging=dragLaneIdx===li;
+                    const isSbDragOver=dragLaneOver===li;
                     return(
-                      <div key={lane} className="card laneRow" style={{borderLeftColor: laneColor}}>
+                      <div key={lane}
+                        draggable
+                        onDragStart={e=>{e.dataTransfer.effectAllowed="move";setDragLaneIdx(li);}}
+                        onDragOver={e=>{e.preventDefault();setDragLaneOver(li);}}
+                        onDragEnd={()=>{reorderLanes(dragLaneIdx,dragLaneOver);setDragLaneIdx(null);setDragLaneOver(null);}}
+                        className={"card laneRow"+(isSbDragging?" dragging-row":"")+(isSbDragOver?" drag-over-row":"")}
+                        style={{borderLeftColor:laneColor,borderTop:isSbDragOver?"2px solid #c96a3a":""}}>
+                        <span className="dragHandle" style={{marginRight:2}}>⠿</span>
                         <div style={{minWidth:0, flex:1}}>
                           <div style={{fontSize:13,fontWeight:900,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
                             {lane}
@@ -2862,9 +2890,18 @@ function Stage4({project,tier,initLanes,initPhases,initialTasks,aiGenerated,init
           {visibleLanes.map((lane)=>{
             const laneColor = lc(lane);
             const isCollapsed = !!collapsedLanes[lane];
+            const gridLaneIdx=lanes.indexOf(lane);
+            const isGridDragging=dragLaneIdx===gridLaneIdx;
+            const isGridDragOver=dragLaneOver===gridLaneIdx;
 
             return(
-              <div key={lane} style={{ marginBottom: 8, paddingBottom: 4 }}>
+              <div key={lane}
+                draggable
+                onDragStart={e=>{e.dataTransfer.effectAllowed="move";setDragLaneIdx(gridLaneIdx);}}
+                onDragOver={e=>{e.preventDefault();setDragLaneOver(gridLaneIdx);}}
+                onDragEnd={()=>{reorderLanes(dragLaneIdx,dragLaneOver);setDragLaneIdx(null);setDragLaneOver(null);}}
+                className={isGridDragging?"dragging-row":""}
+                style={{marginBottom:8,paddingBottom:4,borderTop:isGridDragOver?"2px solid #c96a3a":"",transition:"border .1s"}}>
                 <div className="mapGrid" style={{gridTemplateColumns}}>
                   {/* Workstream header (sticky) */}
                   <div className="card laneHeaderCell"
@@ -2876,9 +2913,11 @@ function Stage4({project,tier,initLanes,initPhases,initialTasks,aiGenerated,init
                       justifyContent:"flex-start",
                       gap:4,
                       borderLeft:`5px solid ${laneColor}`,
-                      borderRadius:14
+                      borderRadius:14,
+                      cursor:"grab",
                     }}
                   >
+                    <span className="dragHandle" style={{alignSelf:"flex-end",marginBottom:-2}}>⠿</span>
                     <div style={{width:"100%",display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
                       <div style={{minWidth:0, width:"100%"}}>
                         {editingLane===lane ? (
@@ -3758,12 +3797,15 @@ Return only the plain text paragraph.`;
 
 /* ===== CIAModal ===== */
 /* ===== CIA Page ===== */
-function CIAPage({entries,stakeholderGroups,lanes,phases,onAdd,onAddWithData,onUpdate,onRemove,onNavigateToSA,project}){
-  const {useState}=React;
+function CIAPage({entries,stakeholderGroups,lanes,phases,onAdd,onAddWithData,onUpdate,onRemove,onReorder,onNavigateToSA,project}){
+  const {useState,useRef}=React;
   const [activeId,setActiveId]=useState(null);
   const [filterMag,setFilterMag]=useState("");
   const [filterWS,setFilterWS]=useState("");
   const [filterGrp,setFilterGrp]=useState("");
+  const [dragIdx,setDragIdx]=useState(null);
+  const [dragOverIdx,setDragOverIdx]=useState(null);
+  const ciaDragRef=useRef(null);
 
   const MC={High:"#b84040",Medium:"#c48a1a",Low:"#4a9e6a"};
   const MB={High:"#fdf0f0",Medium:"#fdf8ec",Low:"#f0f7f2"};
@@ -3946,12 +3988,29 @@ function CIAPage({entries,stakeholderGroups,lanes,phases,onAdd,onAddWithData,onU
                   {filtered.map((entry,ei)=>{
                     const mag=entry.magnitude;
                     const isActive=entry.id===activeId;
+                    const realIdx=entries.indexOf(entry);
+                    const isDragging=dragIdx===realIdx;
+                    const isDragOver=dragOverIdx===realIdx;
                     const cellStyle={padding:"11px 12px",verticalAlign:"middle",fontSize:12,color:"var(--slate)"};
                     const monoStyle={fontFamily:"var(--mono)",fontSize:11,color:"var(--slate2)"};
                     return(
-                      <tr key={entry.id} onClick={()=>setActiveId(isActive?null:entry.id)}
+                      <tr key={entry.id}
+                        draggable
+                        onDragStart={e=>{e.dataTransfer.effectAllowed="move";setDragIdx(realIdx);}}
+                        onDragOver={e=>{e.preventDefault();setDragOverIdx(realIdx);}}
+                        onDragEnd={()=>{
+                          if(dragIdx!==null&&dragOverIdx!==null&&dragIdx!==dragOverIdx)
+                            onReorder(dragIdx,dragOverIdx);
+                          setDragIdx(null);setDragOverIdx(null);
+                        }}
+                        onClick={()=>setActiveId(isActive?null:entry.id)}
+                        className={(isDragging?"dragging-row ":"")+(isDragOver?"drag-over-row ":"")}
                         style={{cursor:"pointer",background:isActive?"#fdf8f2":ei%2===0?"var(--white)":"#faf8f4",
                           borderTop:"1px solid var(--border)",transition:"background .1s"}}>
+                        {/* Drag handle */}
+                        <td style={{padding:"11px 4px",verticalAlign:"middle",textAlign:"center",width:20}} onClick={e=>e.stopPropagation()}>
+                          <span className="dragHandle">⠿</span>
+                        </td>
                         {/* ID */}
                         <td style={{...cellStyle,...monoStyle,fontWeight:900}}>
                           {entry.id}
@@ -4232,6 +4291,8 @@ function RatingDots({value,max=5,onChange,color="#c96a3a"}){
 function SAPage({groups,rows,ciaEntries,showIndicators,setShowIndicators,adkarDot,dotColor,onAddGroup,onUpdateGroup,onRemoveGroup,onUpdateRow}){
   const {useState,useRef,useEffect}=React;
   const [activeId,setActiveId]=useState(null);
+  const [dragGrpIdx,setDragGrpIdx]=useState(null);
+  const [dragGrpOver,setDragGrpOver]=useState(null);
   const [newGrp,setNewGrp]=useState("");
   const [adding,setAdding]=useState(false);
   const [aiLoading,setAiLoading]=useState(false);
@@ -4488,13 +4549,30 @@ Keep responses concise and actionable. Format with clear sections.`;
                     const imp=Number(g.impactLevel)||0;
                     const inf=Number(g.influence)||0;
                     const dc=dispColor(g.disposition);
+                    const realGrpIdx=groups.indexOf(g);
+                    const isGrpDragging=dragGrpIdx===realGrpIdx;
+                    const isGrpDragOver=dragGrpOver===realGrpIdx;
                     return(
-                      <tr key={g.id} onClick={()=>setActiveId(isActive?null:g.id)}
+                      <tr key={g.id}
+                        draggable
+                        onDragStart={e=>{e.dataTransfer.effectAllowed="move";setDragGrpIdx(realGrpIdx);}}
+                        onDragOver={e=>{e.preventDefault();setDragGrpOver(realGrpIdx);}}
+                        onDragEnd={()=>{
+                          if(dragGrpIdx!==null&&dragGrpOver!==null&&dragGrpIdx!==dragGrpOver)
+                            onReorderGroups(dragGrpIdx,dragGrpOver);
+                          setDragGrpIdx(null);setDragGrpOver(null);
+                        }}
+                        onClick={()=>setActiveId(isActive?null:g.id)}
+                        className={(isGrpDragging?"dragging-row ":"")+(isGrpDragOver?"drag-over-row ":"")}
                         style={{cursor:"pointer",
                           background:isActive?"#fdf3ec":gi%2===0?"var(--white)":"#faf8f4",
                           borderTop:"1px solid var(--border)",
                           boxShadow:isActive?"inset 3px 0 0 #c96a3a":"none",
                           transition:"background .1s,box-shadow .1s"}}>
+                        {/* Drag handle */}
+                        <td style={{padding:"10px 4px",verticalAlign:"middle",textAlign:"center",width:18}} onClick={e=>e.stopPropagation()}>
+                          <span className="dragHandle">⠿</span>
+                        </td>
                         {/* Group name */}
                         <td style={{padding:"14px 14px",verticalAlign:"middle",overflow:"hidden"}}>
                           <div style={{display:"flex",alignItems:"center",gap:7}}>
@@ -4867,6 +4945,12 @@ function ProjectWorkspace({project,tier,initLanes,initPhases,initialTasks,aiGene
   };
   const updateCia=(id,patch)=>setCiaEntries(prev=>prev.map(e=>e.id===id?{...e,...patch}:e));
   const removeCia=(id)=>setCiaEntries(prev=>prev.filter(e=>e.id!==id));
+  const reorderCia=(fromIdx,toIdx)=>setCiaEntries(prev=>{
+    const arr=[...prev];
+    const [item]=arr.splice(fromIdx,1);
+    arr.splice(toIdx,0,item);
+    return arr;
+  });
 
   // ── SA state ──
   const [stakeholderGroups,setStakeholderGroups]=useState(()=>initStakeholderGroups||[]);
@@ -4893,6 +4977,12 @@ function ProjectWorkspace({project,tier,initLanes,initPhases,initialTasks,aiGene
     return id;
   };
   const updateGroup=(id,patch)=>setStakeholderGroups(prev=>prev.map(g=>g.id===id?{...g,...patch}:g));
+  const reorderGroups=(fromIdx,toIdx)=>setStakeholderGroups(prev=>{
+    const arr=[...prev];
+    const [item]=arr.splice(fromIdx,1);
+    arr.splice(toIdx,0,item);
+    return arr;
+  });
   const removeGroup=(id)=>{
     setStakeholderGroups(prev=>prev.filter(g=>g.id!==id));
     setStakeholderRows(prev=>prev.filter(r=>r.groupId!==id));
@@ -5376,53 +5466,96 @@ tbody tr:hover td{background:#faf7f2;}
       obs.push({
         id:"cia_unlinked_high",
         severity:"red",
-        title:`${unlinkedHighCia.length} High-magnitude change${unlinkedHighCia.length>1?"s":""} have no stakeholder groups linked`,
-        why:"High-magnitude changes without linked groups may not be reflected in your engagement or readiness planning.",
+        title:unlinkedHighCia.length===1
+          ?"\""+unlinkedHighCia[0].title+"\" is High-magnitude with no stakeholder groups linked"
+          :unlinkedHighCia.length+" High-magnitude changes have no stakeholder groups linked",
+        why:"These changes are flying blind — without linked groups, there's no readiness tracking, no engagement plan, and no way to know who needs support. Link them to the right groups before planning any interventions.",
         module:"cia",
         data:{entries:unlinkedHighCia},
       });
     }
 
-    // SA groups with High-magnitude CIA impacts but Low ADKAR ratings
+    // ADKAR sequence violations — investing in later dimensions before earlier ones are established
     stakeholderGroups.forEach(g=>{
       const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
-      const highImpacts=ciaEntries.filter(e=>e.magnitude==="High"&&(e.impactedGroups||[]).includes(g.id));
-      const lowAdkar=ADKAR_D.filter(d=>row[d]==="Low");
-      if(highImpacts.length>0&&lowAdkar.length>0){
+      const a=row.awareness,d=row.desire,k=row.knowledge,ab=row.ability,r=row.reinforcement;
+      // Knowledge/Ability/Reinforcement rated but Awareness is Low or unset
+      if((!a||a==="Low")&&(k||ab||r)){
         obs.push({
-          id:`sa_readiness_gap_${g.id}`,
-          severity:"red",
-          title:`Readiness gap: ${g.name} has High-magnitude impacts but Low ${lowAdkar.map(d=>d[0].toUpperCase()).join(", ")} rating${lowAdkar.length>1?"s":""}`,
-          why:"A group facing high-magnitude change with low readiness scores represents significant adoption risk.",
+          id:"adkar_seq_awareness_"+g.id,
+          severity:"amber",
+          title:g.name+": investing in later ADKAR stages before Awareness is established",
+          why:"ADKAR is sequential. "+g.name+" has Knowledge, Ability, or Reinforcement activity planned but Awareness is Low or unrated. Training and reinforcement won't land until this group understands why the change is happening.",
           module:"sa",
-          data:{groupId:g.id,groupName:g.name,lowAdkar,highImpacts},
+          data:{groupId:g.id,groupName:g.name},
         });
       }
-    });
-
-    // Resistant groups with no resistance notes or intervention plan
-    stakeholderGroups.forEach(g=>{
-      const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
-      if(g.disposition==="Resistant"&&!row.resistanceNotes&&!row.interventionPlan){
+      // Knowledge or later rated but Desire is Low
+      if(a&&a!=="Low"&&d==="Low"&&(k||ab||r)){
         obs.push({
-          id:`sa_resistant_no_plan_${g.id}`,
-          severity:"red",
-          title:`${g.name} is Resistant with no resistance notes or intervention plan`,
-          why:"Resistant groups without a documented response plan are an unmanaged risk.",
+          id:"adkar_seq_desire_"+g.id,
+          severity:"amber",
+          title:g.name+": Desire is Low — knowledge investments may not stick",
+          why:""+g.name+" is aware of the change but doesn't want it. Building knowledge before addressing desire wastes effort — focus on the what's-in-it-for-me conversation first.",
           module:"sa",
           data:{groupId:g.id,groupName:g.name},
         });
       }
     });
 
-    // SA groups with no CIA impacts linked at all
+    // Saturation — groups facing 2+ High-magnitude changes
+    stakeholderGroups.forEach(g=>{
+      const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
+      const highImpacts=ciaEntries.filter(e=>e.magnitude==="High"&&(e.impactedGroups||[]).includes(g.id));
+      if(highImpacts.length>=2){
+        const isResistant=g.disposition==="Resistant";
+        const hasLowAdkar=ADKAR_D.some(d=>row[d]==="Low");
+        obs.push({
+          id:"sa_saturation_"+g.id,
+          severity:isResistant||hasLowAdkar?"red":"amber",
+          title:g.name+" is exposed to "+highImpacts.length+" High-magnitude changes simultaneously",
+          why:"Change saturation is a real adoption risk. "+g.name+" faces "+highImpacts.length+" High-magnitude changes at once"+(isResistant?" and is already Resistant":"")+(hasLowAdkar?" with low readiness scores":"")+". Consider sequencing, scoping, or targeted support to reduce absorption load.",
+          module:"sa",
+          data:{groupId:g.id,groupName:g.name,highImpacts},
+        });
+      }
+      // Also flag readiness gaps (kept separate from saturation)
+      const lowAdkar=ADKAR_D.filter(d=>row[d]==="Low");
+      if(highImpacts.length>0&&lowAdkar.length>0&&highImpacts.length<2){
+        obs.push({
+          id:"sa_readiness_gap_"+g.id,
+          severity:"red",
+          title:g.name+": High-magnitude change exposure with Low "+lowAdkar.map(d=>d[0].toUpperCase()).join(", ")+" rating"+(lowAdkar.length>1?"s":""),
+          why:""+g.name+" is facing significant change but isn't ready for it. Low "+lowAdkar.join(" and ")+" with High-magnitude impacts linked is one of the clearest adoption risk signals in the data.",
+          module:"sa",
+          data:{groupId:g.id,groupName:g.name,lowAdkar,highImpacts},
+        });
+      }
+    });
+
+    // Resistant groups with no documented response
+    stakeholderGroups.forEach(g=>{
+      const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
+      if(g.disposition==="Resistant"&&!row.resistanceNotes&&!row.interventionPlan){
+        obs.push({
+          id:"sa_resistant_no_plan_"+g.id,
+          severity:"red",
+          title:g.name+" is Resistant with no documented response",
+          why:"Resistance without a response plan means you're hoping it resolves on its own. Document what's driving the resistance and what you're doing about it — this is the information leadership needs when things get difficult.",
+          module:"sa",
+          data:{groupId:g.id,groupName:g.name},
+        });
+      }
+    });
+
+    // SA groups with no CIA impacts linked
     const groupsWithNoImpacts=stakeholderGroups.filter(g=>!ciaEntries.some(e=>(e.impactedGroups||[]).includes(g.id)));
     if(groupsWithNoImpacts.length>0&&ciaEntries.length>0){
       obs.push({
         id:"sa_groups_no_impacts",
         severity:"amber",
-        title:`${groupsWithNoImpacts.length} stakeholder group${groupsWithNoImpacts.length>1?"s":""} have no change impacts linked`,
-        why:"Groups without linked CIA entries may be missing from your impact and engagement planning.",
+        title:groupsWithNoImpacts.length+" stakeholder group"+(groupsWithNoImpacts.length>1?"s":"")+" have no change impacts linked",
+        why:"You have change impacts logged but "+groupsWithNoImpacts.map(g=>g.name).join(", ")+" isn't connected to any of them. Either these groups aren't affected — in which case they may not need to be in your SA — or the linkage is missing.",
         module:"sa",
         data:{groups:groupsWithNoImpacts.map(g=>g.name)},
       });
@@ -5434,7 +5567,7 @@ tbody tr:hover td{background:#faf7f2;}
         id:"cia_no_sa_groups",
         severity:"amber",
         title:"Change impacts logged but no stakeholder groups defined",
-        why:"Without stakeholder groups, change impacts cannot be linked to the people they affect.",
+        why:"You know what's changing but not who it's changing for. Without stakeholder groups, you can't track readiness, plan targeted engagement, or know where your biggest adoption risks are.",
         module:"sa",
         data:{},
       });
@@ -5446,7 +5579,7 @@ tbody tr:hover td{background:#faf7f2;}
         id:"sa_no_cia",
         severity:"amber",
         title:"Stakeholder groups defined but no change impacts logged",
-        why:"Without change impacts, it's difficult to assess what each group is actually facing.",
+        why:"You know who your stakeholders are but not what they're actually facing. Without CIA entries, your ADKAR assessments are estimates rather than evidence-based judgments.",
         module:"cia",
         data:{},
       });
@@ -5571,18 +5704,17 @@ ${stakeholderGroups.slice(0,8).map(g=>{
 CHANGE IMPACTS (summary):
 ${ciaEntries.slice(0,6).map(e=>e.id+": "+(e.title||e.description)+" ("+e.magnitude+") → groups: "+((e.impactedGroups||[]).map(id=>(stakeholderGroups.find(g=>g.id===id)||{}).name||id).join(", ")||"none")).join("\n")||"None logged"}`;
 
-    const prompt=`You are an expert OCM strategist advising a change practitioner. Based on the observation and project context below, provide a single specific recommended action they can take right now to address this risk.
+    const prompt=`You are an experienced OCM practitioner talking peer-to-peer with a colleague. Based on the observation and project context below, give one specific recommendation for what to do next.
 
 ${context}
 
-Your recommendation must be:
-- Specific to this project and observation — not generic advice
-- A single concrete action, not a list
-- 2-4 sentences maximum
-- Actionable immediately within OCM Studio or as a direct practitioner action
-- Written in plain language, practitioner to practitioner
+Voice and style:
+- Peer-to-peer and diagnostic: speak like a trusted colleague who has seen this pattern before
+- Name the specific risk concretely, then say what to do about it
+- 2-4 sentences. No bullet points, no headers, no preamble.
+- Example tone: "Finance Controllers are facing your highest-magnitude change with Low Awareness — that gap is going to show up at go-live. Get a targeted briefing on the books this week, focused on what this change means for their day-to-day work rather than the technical details."
 
-Return ONLY the recommendation text. No preamble, no headers.`;
+Return ONLY the recommendation text.`;
 
     try{
       const res=await fetch("/api/claude",{
@@ -5632,19 +5764,38 @@ Return ONLY the recommendation text. No preamble, no headers.`;
     const goLiveDate=snap.goLiveDate||initGoLiveDate||"";
     const rag=snap.rag||initRag||"none";
     const selectedModules=Object.entries(aiPanelModules).filter(([,v])=>v).map(([k])=>k);
+    const daysLeft=goLiveDate?Math.ceil((new Date(goLiveDate)-new Date())/(1000*60*60*24)):null;
+    const urgency=daysLeft!==null?(daysLeft<=14?"CRITICAL — go-live in "+daysLeft+" days":daysLeft<=30?"HIGH — go-live in "+daysLeft+" days":daysLeft<=60?"MODERATE — go-live in "+daysLeft+" days":"LOW — go-live in "+daysLeft+" days"):"UNKNOWN — no go-live date set";
 
     const projectBase=`PROJECT: ${project.name}
-TIER: ${tier} | GO-LIVE: ${goLiveDate||"Not set"} | RAG: ${rag}
+TIER: ${tier} | RAG: ${rag} | TIMELINE URGENCY: ${urgency}
 ${project.description?`DESCRIPTION: ${project.description.slice(0,400)}`:""}`;
 
+    // Build rich CIA summary for context
     const ciaSummary=ciaEntries.length>0
-      ?ciaEntries.slice(0,10).map(e=>e.id+": "+(e.title||"Untitled")+" ("+e.magnitude+")").join("\n")
+      ?ciaEntries.slice(0,10).map(e=>
+        e.id+": "+(e.title||"Untitled")+" | Magnitude: "+(e.magnitude||"?")+
+        " | Groups: "+((e.impactedGroups||[]).map(id=>(stakeholderGroups.find(g=>g.id===id)||{}).name||id).join(", ")||"none")+
+        " | "+((e.description||"").slice(0,120))
+      ).join("\n")
       :"None yet.";
 
+    // Build rich SA summary with ADKAR sequence analysis
     const saSummary=stakeholderGroups.length>0
       ?stakeholderGroups.slice(0,10).map(g=>{
         const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
-        return g.id+": "+g.name+" | "+g.disposition+" | A="+(row.awareness||"?")+" D="+(row.desire||"?")+" K="+(row.knowledge||"?")+" Ab="+(row.ability||"?")+" R="+(row.reinforcement||"?");
+        const highImpactCount=ciaEntries.filter(e=>e.magnitude==="High"&&(e.impactedGroups||[]).includes(g.id)).length;
+        const totalImpactCount=ciaEntries.filter(e=>(e.impactedGroups||[]).includes(g.id)).length;
+        return g.id+": "+g.name+
+          " | Disposition: "+(g.disposition||"?")+
+          " | Impact: "+(g.impactLevel||"?")+"/5 Influence: "+(g.influence||"?")+"/5"+
+          " | ADKAR — A:"+(row.awareness||"?")+
+          " D:"+(row.desire||"?")+
+          " K:"+(row.knowledge||"?")+
+          " Ab:"+(row.ability||"?")+
+          " R:"+(row.reinforcement||"?")+
+          " | CIA exposure: "+totalImpactCount+" total, "+highImpactCount+" High-magnitude"+
+          (row.barriersToChange?" | Barriers: "+row.barriersToChange.slice(0,80):"");
       }).join("\n")
       :"None yet.";
 
@@ -5663,9 +5814,17 @@ ${project.description?`DESCRIPTION: ${project.description.slice(0,400)}`:""}`;
     const laneList=(snap.lanes||initLanes||[]).join(", ");
     const phaseList=(snap.phases||initPhases||[]).join(", ");
 
-    const newInfo=`NEW INFORMATION:
+    const newInfo=`NEW INFORMATION FROM PRACTITIONER:
 ${aiPanelContext.slice(0,2000)}
-${aiPanelNote.trim()?"NOTE: "+aiPanelNote:""}`;
+${aiPanelNote.trim()?"PRACTITIONER CONTEXT NOTE: "+aiPanelNote:""}`;
+
+    const INTELLIGENCE_PRINCIPLES=`INTELLIGENCE PRINCIPLES — follow these strictly:
+1. SIGNAL OVER NOISE: Only surface something a competent practitioner who missed it would regret. If you cannot complete the sentence "A practitioner who missed this would regret it because [specific, concrete reason]" — do not include the suggestion.
+2. RESTRAINT IS CORRECT: Returning zero suggestions is a valid and preferred outcome when the new information does not clearly warrant a change. Do not generate suggestions to fill space.
+3. PRIORITIZE UPDATES OVER CREATION: Always check existing entries first. Only suggest a new entry if nothing in the existing register already covers it. Suggesting a new entry that duplicates existing content makes more work for the practitioner.
+4. ADKAR IS SEQUENTIAL: Flag and address earlier dimensions before later ones. A group with Low Awareness does not benefit from Knowledge or Ability interventions yet. Suggestions that skip sequence are noise.
+5. SATURATION AWARENESS: A stakeholder group facing 2 or more High-magnitude changes simultaneously is at elevated adoption risk. Weight your suggestions accordingly.
+6. URGENCY WEIGHTING: The timeline urgency above is critical context. A gap that is manageable at 60 days is a crisis at 14 days. Calibrate confidence and priority accordingly.`;
 
     const repair=(raw)=>{
       try{ return JSON.parse(raw); }catch(_){}
@@ -5683,7 +5842,7 @@ ${aiPanelNote.trim()?"NOTE: "+aiPanelNote:""}`;
         body:JSON.stringify({
           model:"claude-sonnet-4-5",
           max_tokens:3000,
-          system:"You are an expert OCM strategist. Return ONLY valid JSON — no markdown, no explanation, no backticks. Always close every array and object.",
+          system:"You are an expert OCM strategist acting as an intelligent practice partner. Return ONLY valid JSON — no markdown, no explanation, no backticks. Always close every array and object.",
           messages:[{role:"user",content:prompt}]
         })
       });
@@ -5698,21 +5857,30 @@ ${aiPanelNote.trim()?"NOTE: "+aiPanelNote:""}`;
       const results={cia:[],sa:[],map:[],interpretation:""};
 
       // ── Call 1: Interpretation + CIA ──
-      if(selectedModules.includes("cia")||true){
+      if(selectedModules.includes("cia")||selectedModules.length===0){
         const ciaPrompt=`${projectBase}
 
-CURRENT CIA ENTRIES:
+${INTELLIGENCE_PRINCIPLES}
+
+CURRENT CIA REGISTER:
 ${ciaSummary}
 
-CURRENT STAKEHOLDER GROUPS:
+CURRENT STAKEHOLDER GROUPS (for context):
 ${saSummary}
 
 ${newInfo}
 
-Analyze the new information. Return JSON:
-{"interpretation":"2-3 sentence plain-language summary of what the new information means for this project","cia":[{"action":"add or update","entryId":"existing ID if update else null","title":"change title","description":"what is changing","currentState":"today","futureState":"after change","magnitude":"High or Medium or Low","impactTypes":["Process","Tool/Technology","Role","Policy","Behavior","Reporting","Org Structure"],"implications":"people-side implications","rationale":"why warranted"}]}
+TASK — INTERPRETATION + CHANGE IMPACT ANALYSIS:
+First, write a 2-3 sentence plain-language interpretation of what the new information means for this project. Be specific to this project, not generic. Use a peer-to-peer and diagnostic voice.
 
-Rules: Only include CIA suggestions if they are genuinely warranted. Return empty array if not. impactTypes from allowed list only.`;
+Then, assess whether the new information warrants any changes to the CIA register. Apply the intelligence principles above strictly — prioritize updating existing entries over creating new ones.
+
+For each suggestion, provide an explicit reasoning chain in the rationale field: state which existing data point + which element of the new information + why a practitioner who missed this would regret it.
+
+Return ONLY this JSON:
+{"interpretation":"your 2-3 sentence interpretation","cia":[{"action":"add or update","entryId":"exact existing entry ID if action is update, null if genuinely new","title":"change title","description":"what is changing and what people will experience","currentState":"how this works today","futureState":"how this will work after","magnitude":"High or Medium or Low","impactTypes":["Process","Tool/Technology","Role","Policy","Behavior","Reporting","Org Structure"],"implications":"specific people-side implications — behavior change required, likely resistance, support needed","rationale":"explicit reasoning chain: [existing data point] + [new information element] = [why a practitioner would regret missing this]"}]}
+
+If no CIA changes are warranted, return an empty array for cia.`;
         const r1=await callAI(ciaPrompt);
         results.interpretation=r1.interpretation||"";
         results.cia=r1.cia||[];
@@ -5722,18 +5890,31 @@ Rules: Only include CIA suggestions if they are genuinely warranted. Return empt
       if(selectedModules.includes("sa")){
         const saPrompt=`${projectBase}
 
+${INTELLIGENCE_PRINCIPLES}
+
 CURRENT STAKEHOLDER GROUPS:
 ${saSummary}
 
-CURRENT CIA ENTRIES:
+CURRENT CIA REGISTER (for context):
 ${ciaSummary}
 
 ${newInfo}
 
-Based on the new information, suggest stakeholder group updates. Return JSON:
-{"sa":[{"action":"add or update","groupId":"existing group ID if update else null","groupName":"group name","department":"dept if known","disposition":"Supportive or Neutral or Resistant or Unknown","awareness":"High or Medium or Low or empty","desire":"High or Medium or Low or empty","knowledge":"High or Medium or Low or empty","ability":"High or Medium or Low or empty","reinforcement":"High or Medium or Low or empty","barriersToChange":"text or empty","wiifm":"text or empty","rationale":"why warranted"}]}
+TASK — STAKEHOLDER ASSESSMENT:
+Assess whether the new information warrants updates to the stakeholder assessment. Apply the intelligence principles strictly.
 
-Rules: Only suggest where new information specifically supports it. Return empty array if not warranted.`;
+ADKAR SEQUENCE RULES you must follow:
+- If a group has Low or unrated Awareness, do not suggest Knowledge, Ability, or Reinforcement updates — Awareness must come first.
+- If a group has Low or unrated Desire, flag this before suggesting Knowledge updates.
+- Only suggest later-stage ADKAR dimensions if earlier ones are established (High or Medium).
+- If a group has 2 or more High-magnitude CIA impacts, flag saturation risk explicitly in the rationale.
+
+For each suggestion, prioritize updating an existing group over suggesting a new one. Only suggest a new group if it clearly appears in the new information and is not represented in the existing register.
+
+Return ONLY this JSON:
+{"sa":[{"action":"add or update","groupId":"exact existing group ID if update, null only if genuinely new group","groupName":"group name","department":"department if identifiable","disposition":"Supportive or Neutral or Resistant or Unknown — only if new information specifically supports this","awareness":"High or Medium or Low — only if new information supports this, else empty string","desire":"High or Medium or Low — only if warranted, else empty string","knowledge":"High or Medium or Low — only if warranted and earlier ADKAR dims are established, else empty string","ability":"High or Medium or Low — only if warranted and earlier dims established, else empty string","reinforcement":"High or Medium or Low — only if warranted and all earlier dims established, else empty string","barriersToChange":"specific barrier text if new information reveals barriers, else empty string","wiifm":"specific WIIFM framing if new information supports it, else empty string","rationale":"explicit reasoning chain including ADKAR sequence logic and saturation status"}]}
+
+If no SA changes are warranted, return an empty array for sa.`;
         const r2=await callAI(saPrompt);
         results.sa=r2.sa||[];
       }
@@ -5742,18 +5923,28 @@ Rules: Only suggest where new information specifically supports it. Return empty
       if(selectedModules.includes("map")){
         const mapPrompt=`${projectBase}
 
-CURRENT MAP TASKS (at-risk sample):
+${INTELLIGENCE_PRINCIPLES}
+
+CURRENT MAP TASKS (at-risk and recent sample):
 ${mapSummary}
 
 AVAILABLE LANES: ${laneList}
 AVAILABLE PHASES: ${phaseList}
 
+STAKEHOLDER GROUPS (for context):
+${saSummary}
+
 ${newInfo}
 
-Suggest new readiness map tasks based on the new information. Return JSON:
-{"map":[{"action":"add","lane":"exact lane name from list above","phase":"exact phase name from list above","label":"task label under 7 words","detail":"2-3 sentence description","rationale":"why warranted"}]}
+TASK — READINESS MAP:
+Assess whether the new information warrants new tasks on the readiness map. Apply the intelligence principles strictly — only suggest tasks that represent specific OCM activities the new information makes necessary and that are not already represented in the current map.
 
-Rules: Lane and phase must exactly match the available options above. Return empty array if no tasks are warranted.`;
+Consider: Does this information reveal a gap in stakeholder engagement, communications, training, or readiness activities? Is there a specific workstream that is missing activity given what the new information reveals?
+
+Return ONLY this JSON:
+{"map":[{"action":"add","lane":"exact lane name — must match available lanes exactly","phase":"exact phase name — must match available phases exactly","label":"task label under 7 words","detail":"2-3 sentences — specific activity, who owns it, what done looks like","rationale":"explicit reasoning chain: [gap identified] + [new information element] = [why this task is now necessary]"}]}
+
+If no map tasks are warranted, return an empty array for map.`;
         const r3=await callAI(mapPrompt);
         results.map=r3.map||[];
       }
@@ -6413,7 +6604,7 @@ Rules: Lane and phase must exactly match the available options above. Return emp
           lanes={liveLanes}
           phases={livePhases}
           onAdd={addCiaEntry} onAddWithData={addCiaEntryWithData}
-          onUpdate={updateCia} onRemove={removeCia}
+          onUpdate={updateCia} onRemove={removeCia} onReorder={reorderCia}
           onNavigateToSA={()=>setCurrentView("sa")}
           project={project}
         />
@@ -6425,7 +6616,7 @@ Rules: Lane and phase must exactly match the available options above. Return emp
           ciaEntries={ciaEntries} showIndicators={showIndicators}
           setShowIndicators={setShowIndicators} adkarDot={adkarDot} dotColor={DOT_COLOR}
           onAddGroup={addGroup} onUpdateGroup={updateGroup} onRemoveGroup={removeGroup}
-          onUpdateRow={updateSaRow}
+          onUpdateRow={updateSaRow} onReorderGroups={reorderGroups}
         />
       )}
     </div>
