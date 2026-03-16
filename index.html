@@ -4239,25 +4239,44 @@ function SAPage({groups,rows,ciaEntries,showIndicators,setShowIndicators,adkarDo
   const inputRef=useRef(null);
   useEffect(()=>{if(adding&&inputRef.current)inputRef.current.focus();},[adding]);
   useEffect(()=>{if(activeId&&!groups.find(g=>g.id===activeId))setActiveId(null);},[groups]);
+  useEffect(()=>{
+    if(!adkarPopover) return;
+    const handler=()=>setAdkarPopover(null);
+    document.addEventListener("mousedown",handler);
+    return()=>document.removeEventListener("mousedown",handler);
+  },[adkarPopover]);
 
   // ── Filter state ──
   const [filterDept,setFilterDept]=useState("");
   const [filterType,setFilterType]=useState("");
   const [filterDisp,setFilterDisp]=useState("");
+  const [filterImpact,setFilterImpact]=useState("");
+  const [filterInfluence,setFilterInfluence]=useState("");
+  const [filterAdkar,setFilterAdkar]=useState(""); // "full"|"partial"|"none"
+  const [adkarPopover,setAdkarPopover]=useState(null); // {groupId, dim, rect}
 
   const active=groups.find(g=>g.id===activeId);
   const activeRow=rows.find(r=>r.groupId===activeId)||{};
   const ciaFor=(id)=>ciaEntries.filter(e=>(e.impactedGroups||[]).includes(id));
-  const assessed=rows.filter(r=>ADKAR_DIMS.some(d=>r[d])).length;
+  const assessed=rows.filter(r=>ADKAR_DIMS.every(d=>r[d])).length;
   const submit=()=>{const n=newGrp.trim();if(!n)return;onAddGroup(n);setNewGrp("");setAdding(false);};
 
   // Unique dept values for filter dropdown
   const deptOptions=[...new Set(groups.map(g=>g.department).filter(Boolean))].sort();
-  const activeFilters=!!(filterDept||filterType||filterDisp);
+  const activeFilters=!!(filterDept||filterType||filterDisp||filterImpact||filterInfluence||filterAdkar);
   const filteredGroups=groups.filter(g=>{
     if(filterDept&&g.department!==filterDept) return false;
     if(filterType&&g.stakeholderType!==filterType) return false;
     if(filterDisp&&g.disposition!==filterDisp) return false;
+    if(filterImpact&&Number(g.impactLevel||0)<Number(filterImpact)) return false;
+    if(filterInfluence&&Number(g.influence||0)<Number(filterInfluence)) return false;
+    if(filterAdkar){
+      const row=rows.find(r=>r.groupId===g.id)||{};
+      const filled=ADKAR_DIMS.filter(d=>row[d]).length;
+      if(filterAdkar==="full"&&filled<5) return false;
+      if(filterAdkar==="partial"&&(filled===0||filled===5)) return false;
+      if(filterAdkar==="none"&&filled>0) return false;
+    }
     return true;
   });
 
@@ -4313,29 +4332,14 @@ Keep responses concise and actionable. Format with clear sections.`;
 
   return(
     <div className="pageView" style={{position:"relative"}}>
-      {/* ── Page header: title left, description right, controls far right ── */}
+      {/* ── Page header ── */}
       <div className="pageHeader" style={{paddingBottom:14}}>
         <div style={{flexShrink:0}}>
           <div className="pageTitle">Stakeholder Assessment</div>
-          <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
-            <div style={{padding:"5px 12px",borderRadius:16,background:"var(--off2)",border:"1px solid var(--border)",
-              display:"flex",alignItems:"center",gap:5}}>
-              <span style={{fontFamily:"var(--mono)",fontSize:12,fontWeight:900,color:"var(--slate)"}}>{assessed}/{groups.length}</span>
-              <span style={{fontSize:12,color:"var(--slate2)"}}>assessed</span>
-            </div>
-            {groups.length>0&&(
-              <label style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",
-                borderRadius:16,background:"var(--off2)",border:"1px solid var(--border)",cursor:"pointer"}}>
-                <input type="checkbox" checked={showIndicators} onChange={e=>setShowIndicators(e.target.checked)}
-                  style={{accentColor:"#4a9e6a",width:12,height:12}}/>
-                <span style={{fontSize:12,color:"var(--slate)"}}>Indicators</span>
-              </label>
-            )}
-          </div>
         </div>
         <div style={{flex:1,minWidth:0,padding:"0 24px"}}>
           <div style={{fontSize:13,color:"var(--slate)",lineHeight:1.65,maxWidth:560}}>
-            Assess each group's readiness across ADKAR, capture resistance and engagement strategy, and track influence and disposition. Click any row to open the detail panel for narrative fields.
+            Assess each group's readiness across ADKAR, capture resistance and engagement strategy, and track influence and disposition. Click any row to open the detail panel.
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"flex-start",flexShrink:0,flexWrap:"wrap"}}>
@@ -4348,39 +4352,47 @@ Keep responses concise and actionable. Format with clear sections.`;
 
       {/* ── Filter bar ── */}
       {groups.length>0&&(
-        <div style={{padding:"8px 28px",borderBottom:"1px solid var(--border)",background:"var(--white)",
+        <div style={{padding:"7px 20px",borderBottom:"1px solid var(--border)",background:"var(--white)",
           display:"flex",alignItems:"center",gap:8,flexShrink:0,flexWrap:"wrap"}}>
+          {/* Assessed indicator — leftmost */}
+          <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:8,
+            background:assessed===groups.length&&groups.length>0?"#f0f7f2":"var(--off2)",
+            border:"1px solid "+(assessed===groups.length&&groups.length>0?"#a8d8b8":"var(--border)"),
+            flexShrink:0}}>
+            <span style={{width:7,height:7,borderRadius:"50%",flexShrink:0,display:"inline-block",
+              background:assessed===groups.length&&groups.length>0?"#4a9e6a":"#c0b8b0"}}/>
+            <span style={{fontFamily:"var(--mono)",fontSize:11,fontWeight:900,
+              color:assessed===groups.length&&groups.length>0?"#3a7050":"var(--slate)"}}>
+              {assessed}/{groups.length}
+            </span>
+            <span style={{fontSize:11,color:"var(--slate2)"}}>fully assessed</span>
+          </div>
+          <div style={{width:1,height:16,background:"var(--border)",flexShrink:0}}/>
           <span style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)"}}>FILTER</span>
-          <select style={{fontSize:12,padding:"4px 8px",borderRadius:8,border:"1.5px solid",
-            borderColor:filterDept?"#c96a3a":"var(--border)",background:filterDept?"#fdf3ec":"var(--white)",
-            color:filterDept?"#c96a3a":"var(--slate)",outline:"none",cursor:"pointer"}}
-            value={filterDept} onChange={e=>setFilterDept(e.target.value)}>
-            <option value="">All Departments</option>
-            {deptOptions.map(d=><option key={d} value={d}>{d}</option>)}
-          </select>
-          <select style={{fontSize:12,padding:"4px 8px",borderRadius:8,border:"1.5px solid",
-            borderColor:filterType?"#c96a3a":"var(--border)",background:filterType?"#fdf3ec":"var(--white)",
-            color:filterType?"#c96a3a":"var(--slate)",outline:"none",cursor:"pointer"}}
-            value={filterType} onChange={e=>setFilterType(e.target.value)}>
-            <option value="">All Types</option>
-            {STAKEHOLDER_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
-          </select>
-          <select style={{fontSize:12,padding:"4px 8px",borderRadius:8,border:"1.5px solid",
-            borderColor:filterDisp?"#c96a3a":"var(--border)",background:filterDisp?"#fdf3ec":"var(--white)",
-            color:filterDisp?"#c96a3a":"var(--slate)",outline:"none",cursor:"pointer"}}
-            value={filterDisp} onChange={e=>setFilterDisp(e.target.value)}>
-            <option value="">All Dispositions</option>
-            {DISPOSITIONS.map(d=><option key={d} value={d}>{d}</option>)}
-          </select>
+          {[
+            {val:filterDept,set:setFilterDept,opts:[{v:"",l:"All Depts"},...deptOptions.map(d=>({v:d,l:d}))]},
+            {val:filterType,set:setFilterType,opts:[{v:"",l:"All Types"},...STAKEHOLDER_TYPES.map(t=>({v:t,l:t}))]},
+            {val:filterDisp,set:setFilterDisp,opts:[{v:"",l:"All Dispositions"},...DISPOSITIONS.map(d=>({v:d,l:d}))]},
+            {val:filterImpact,set:setFilterImpact,opts:[{v:"",l:"Any Impact"},{v:"3",l:"Impact ≥ 3"},{v:"4",l:"Impact ≥ 4"},{v:"5",l:"Impact = 5"}]},
+            {val:filterInfluence,set:setFilterInfluence,opts:[{v:"",l:"Any Influence"},{v:"3",l:"Influence ≥ 3"},{v:"4",l:"Influence ≥ 4"},{v:"5",l:"Influence = 5"}]},
+            {val:filterAdkar,set:setFilterAdkar,opts:[{v:"",l:"Any ADKAR"},{v:"full",l:"Fully Assessed"},{v:"partial",l:"Partially Assessed"},{v:"none",l:"Not Assessed"}]},
+          ].map(({val,set,opts},fi)=>(
+            <select key={fi} style={{fontSize:11,padding:"4px 7px",borderRadius:7,border:"1.5px solid",
+              borderColor:val?"#c96a3a":"var(--border)",background:val?"#fdf3ec":"var(--white)",
+              color:val?"#c96a3a":"var(--slate)",outline:"none",cursor:"pointer"}}
+              value={val} onChange={e=>set(e.target.value)}>
+              {opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+            </select>
+          ))}
           {activeFilters&&(
-            <button style={{fontSize:12,padding:"4px 10px",borderRadius:8,border:"1.5px solid #c96a3a",
+            <button style={{fontSize:11,padding:"4px 10px",borderRadius:7,border:"1.5px solid #c96a3a",
               background:"#fdf3ec",color:"#c96a3a",cursor:"pointer",fontWeight:700}}
-              onClick={()=>{setFilterDept("");setFilterType("");setFilterDisp("");}}>
+              onClick={()=>{setFilterDept("");setFilterType("");setFilterDisp("");setFilterImpact("");setFilterInfluence("");setFilterAdkar("");}}>
               ✕ Clear
             </button>
           )}
           {activeFilters&&(
-            <span style={{fontSize:11,fontFamily:"var(--mono)",color:"var(--slate2)",marginLeft:4}}>
+            <span style={{fontSize:11,fontFamily:"var(--mono)",color:"var(--slate2)"}}>
               {filteredGroups.length}/{groups.length} shown
             </span>
           )}
@@ -4389,7 +4401,7 @@ Keep responses concise and actionable. Format with clear sections.`;
 
       <div style={{flex:1,overflow:"hidden",display:"flex"}}>
         {/* ── Main grid area ── */}
-        <div style={{flex:1,overflowY:"auto",padding:"16px 28px",display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{flex:1,overflowY:"auto",padding:activeId?"16px 16px":"16px 28px",display:"flex",flexDirection:"column",gap:16,transition:"padding .2s"}}>
 
           {/* Inline add input */}
           {adding&&(
@@ -4419,9 +4431,9 @@ Keep responses concise and actionable. Format with clear sections.`;
           )}
 
 
-          {/* Heat map table — compact, left-anchored, auto width */}
+          {/* Heat map table */}
           {groups.length>0&&(
-            <div style={{background:"var(--white)",border:"1px solid var(--border)",borderRadius:12,overflowX:"auto",alignSelf:"flex-start"}}>
+            <div style={{background:"var(--white)",border:"1px solid var(--border)",borderRadius:12,overflowX:"auto",width:"100%"}}>
               <table style={{borderCollapse:"collapse",tableLayout:"fixed",whiteSpace:"nowrap"}}>
                 <colgroup>
                   <col style={{width:170}}/>
@@ -4439,7 +4451,7 @@ Keep responses concise and actionable. Format with clear sections.`;
                     <th style={{textAlign:"left",fontFamily:"var(--mono)",fontSize:10,fontWeight:900,
                       letterSpacing:".08em",color:"var(--slate2)",padding:"10px 14px"}}>GROUP</th>
                     <th style={{textAlign:"left",fontFamily:"var(--mono)",fontSize:10,fontWeight:900,
-                      letterSpacing:".06em",color:"var(--slate2)",padding:"10px 10px"}}>DEPT</th>
+                      letterSpacing:".06em",color:"var(--slate2)",padding:"10px 10px"}}>DEPT / AREA</th>
                     <th style={{textAlign:"left",fontFamily:"var(--mono)",fontSize:10,fontWeight:900,
                       letterSpacing:".06em",color:"var(--slate2)",padding:"10px 6px"}}>TYPE</th>
                     <th style={{textAlign:"center",fontFamily:"var(--mono)",fontSize:10,fontWeight:900,
@@ -4479,9 +4491,7 @@ Keep responses concise and actionable. Format with clear sections.`;
                         {/* Group name */}
                         <td style={{padding:"14px 14px",verticalAlign:"middle",overflow:"hidden"}}>
                           <div style={{display:"flex",alignItems:"center",gap:7}}>
-                            {showIndicators&&(
-                              <span style={{width:8,height:8,borderRadius:"50%",background:dotColor[dot],flexShrink:0,display:"inline-block"}}/>
-                            )}
+                            <span style={{width:8,height:8,borderRadius:"50%",background:dotColor[dot],flexShrink:0,display:"inline-block"}}/>
                             <div style={{minWidth:0}}>
                               <div style={{fontSize:13,fontWeight:700,color:"var(--navy)",overflow:"hidden",textOverflow:"ellipsis"}}>{g.name}</div>
                               {hits.length>0&&<div style={{fontSize:10,fontFamily:"var(--mono)",color:"var(--slate2)",marginTop:1}}>{hits.length} CIA{hits.some(c=>c.magnitude==="High")&&<span style={{color:"#b84040",marginLeft:3}}>●</span>}</div>}
@@ -4502,28 +4512,36 @@ Keep responses concise and actionable. Format with clear sections.`;
                             {STAKEHOLDER_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
                           </select>
                         </td>
-                        {/* Impact 1-5 */}
+                        {/* Impact 1-5 — stepper circle */}
                         <td style={{textAlign:"center",padding:"14px 8px",verticalAlign:"middle"}} onClick={e=>e.stopPropagation()}>
-                          <div style={{display:"flex",flexDirection:"row",alignItems:"center",justifyContent:"center",gap:6}}>
-                            <input type="range" min="0" max="5" value={imp}
-                              onChange={e=>onUpdateGroup(g.id,{impactLevel:e.target.value})}
-                              style={{width:42,accentColor:"#c96a3a",cursor:"pointer"}}/>
-                            <span style={{fontSize:13,fontWeight:900,fontFamily:"var(--mono)",minWidth:14,textAlign:"left",
-                              color:imp===0?"var(--border)":imp>=4?"#b84040":imp>=3?"#c48a1a":"#4a9e6a"}}>
+                          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                            <button onClick={()=>onUpdateGroup(g.id,{impactLevel:String(Math.min(5,imp+1))})}
+                              style={{width:18,height:18,borderRadius:"50%",border:"1.5px solid var(--border)",background:"var(--off2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,lineHeight:1,padding:0}}>▲</button>
+                            <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+                              background:imp===0?"var(--off2)":imp>=4?"#fdf0f0":imp>=3?"#fdf8ec":"#f0f7f2",
+                              border:"2px solid "+(imp===0?"var(--border)":imp>=4?"#b84040":imp>=3?"#c48a1a":"#4a9e6a"),
+                              fontFamily:"var(--mono)",fontSize:11,fontWeight:900,
+                              color:imp===0?"var(--slate2)":imp>=4?"#b84040":imp>=3?"#c48a1a":"#4a9e6a"}}>
                               {imp===0?"—":imp}
-                            </span>
+                            </div>
+                            <button onClick={()=>onUpdateGroup(g.id,{impactLevel:String(Math.max(0,imp-1))})}
+                              style={{width:18,height:18,borderRadius:"50%",border:"1.5px solid var(--border)",background:"var(--off2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,lineHeight:1,padding:0}}>▼</button>
                           </div>
                         </td>
-                        {/* Influence 1-5 */}
+                        {/* Influence 1-5 — stepper circle */}
                         <td style={{textAlign:"center",padding:"14px 8px",verticalAlign:"middle"}} onClick={e=>e.stopPropagation()}>
-                          <div style={{display:"flex",flexDirection:"row",alignItems:"center",justifyContent:"center",gap:6}}>
-                            <input type="range" min="0" max="5" value={inf}
-                              onChange={e=>onUpdateGroup(g.id,{influence:e.target.value})}
-                              style={{width:42,accentColor:"#7a6eb0",cursor:"pointer"}}/>
-                            <span style={{fontSize:13,fontWeight:900,fontFamily:"var(--mono)",minWidth:14,textAlign:"left",
-                              color:inf===0?"var(--border)":inf>=4?"#8a5a9e":inf>=3?"#5a7aae":"#4a9e6a"}}>
+                          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                            <button onClick={()=>onUpdateGroup(g.id,{influence:String(Math.min(5,inf+1))})}
+                              style={{width:18,height:18,borderRadius:"50%",border:"1.5px solid var(--border)",background:"var(--off2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,lineHeight:1,padding:0}}>▲</button>
+                            <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+                              background:inf===0?"var(--off2)":inf>=4?"#f4f0fd":inf>=3?"#eef2fb":"#f0f7f2",
+                              border:"2px solid "+(inf===0?"var(--border)":inf>=4?"#8a5a9e":inf>=3?"#5a7aae":"#4a9e6a"),
+                              fontFamily:"var(--mono)",fontSize:11,fontWeight:900,
+                              color:inf===0?"var(--slate2)":inf>=4?"#8a5a9e":inf>=3?"#5a7aae":"#4a9e6a"}}>
                               {inf===0?"—":inf}
-                            </span>
+                            </div>
+                            <button onClick={()=>onUpdateGroup(g.id,{influence:String(Math.max(0,inf-1))})}
+                              style={{width:18,height:18,borderRadius:"50%",border:"1.5px solid var(--border)",background:"var(--off2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,lineHeight:1,padding:0}}>▼</button>
                           </div>
                         </td>
                         {/* Disposition */}
@@ -4535,27 +4553,48 @@ Keep responses concise and actionable. Format with clear sections.`;
                             {DISPOSITIONS.map(d=><option key={d} value={d}>{d}</option>)}
                           </select>
                         </td>
-                        {/* ADKAR cells — inline editable */}
+                        {/* ADKAR cells — dot + popover */}
                         {ADKAR_DIMS.map(dim=>{
                           const v=row[dim];
+                          const isOpen=adkarPopover&&adkarPopover.groupId===g.id&&adkarPopover.dim===dim;
                           return(
-                            <td key={dim} style={{textAlign:"center",padding:"14px 6px",verticalAlign:"middle"}} onClick={e=>e.stopPropagation()}>
-                              <select style={{width:62,fontSize:10,padding:"4px 2px",borderRadius:7,cursor:"pointer",
-                                border:`1.5px solid ${v?LC[v]+"88":"var(--border)"}`,
-                                background:v?LB[v]:"var(--off2)",
-                                color:v?LC[v]:"var(--slate2)",fontFamily:"var(--mono)",fontWeight:900,
-                                textAlign:"center",outline:"none"}}
-                                value={v||""} onChange={e=>onUpdateRow(g.id,{[dim]:e.target.value})}>
-                                <option value="">—</option>
-                                {ADKAR_LEVELS.map(lv=><option key={lv} value={lv}>{lv==="Medium"?"Med":lv}</option>)}
-                              </select>
+                            <td key={dim} style={{textAlign:"center",padding:"14px 6px",verticalAlign:"middle",position:"relative"}} onClick={e=>e.stopPropagation()}>
+                              <button
+                                onClick={e=>{e.stopPropagation();setAdkarPopover(isOpen?null:{groupId:g.id,dim});}}
+                                style={{width:26,height:26,borderRadius:"50%",border:"2px solid "+(v?LC[v]:"var(--border)"),
+                                  background:v?LB[v]:"var(--off2)",cursor:"pointer",display:"inline-flex",
+                                  alignItems:"center",justifyContent:"center",padding:0,
+                                  boxShadow:isOpen?"0 0 0 2px #c96a3a44":"none"}}
+                                title={v||"Not set"}>
+                                {v?<span style={{width:10,height:10,borderRadius:"50%",background:LC[v],display:"inline-block"}}/>
+                                  :<span style={{width:8,height:8,borderRadius:"50%",background:"var(--slate2)",opacity:.4,display:"inline-block"}}/>}
+                              </button>
+                              {isOpen&&(
+                                <div style={{position:"absolute",top:"calc(100% - 4px)",left:"50%",transform:"translateX(-50%)",
+                                  zIndex:500,background:"var(--white)",border:"1px solid var(--border)",
+                                  borderRadius:8,boxShadow:"0 4px 14px rgba(28,20,10,.14)",padding:4,
+                                  display:"flex",flexDirection:"column",gap:2,minWidth:72}}>
+                                  {["","Low","Medium","High"].map(opt=>(
+                                    <button key={opt}
+                                      onClick={e=>{e.stopPropagation();onUpdateRow(g.id,{[dim]:opt});setAdkarPopover(null);}}
+                                      style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px",borderRadius:5,
+                                        border:"none",cursor:"pointer",background:v===opt?"var(--off2)":"transparent",
+                                        fontSize:11,fontFamily:"var(--mono)",fontWeight:900,
+                                        color:opt?LC[opt]:"var(--slate2)"}}>
+                                      {opt?<span style={{width:8,height:8,borderRadius:"50%",background:LC[opt],display:"inline-block",flexShrink:0}}/>
+                                        :<span style={{width:8,height:8,borderRadius:"50%",background:"var(--slate2)",opacity:.4,display:"inline-block",flexShrink:0}}/>}
+                                      {opt||"—"}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </td>
                           );
                         })}
 
-                        {/* Overall dot */}
+                        {/* Overall RAG dot — always visible */}
                         <td style={{textAlign:"center",padding:"14px 8px",verticalAlign:"middle"}}>
-                          {showIndicators&&<span style={{width:12,height:12,borderRadius:"50%",background:dotColor[dot],display:"inline-block"}}/>}
+                          <span style={{width:12,height:12,borderRadius:"50%",background:dotColor[dot],display:"inline-block"}}/>
                         </td>
                         <td style={{padding:"8px 6px",verticalAlign:"middle",textAlign:"center"}}>
                           <button className="iconBtn danger sml"
@@ -4584,8 +4623,8 @@ Keep responses concise and actionable. Format with clear sections.`;
             <div className="detailSlideHeader">
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  {showIndicators&&<span style={{width:11,height:11,borderRadius:"50%",flexShrink:0,
-                    background:dotColor[adkarDot(activeRow)],display:"inline-block"}}/>}
+                  <span style={{width:11,height:11,borderRadius:"50%",flexShrink:0,
+                    background:dotColor[adkarDot(activeRow)],display:"inline-block"}}/>
                   <input className="inp" style={{fontSize:15,fontFamily:"var(--serif)",fontWeight:700,
                     width:"100%",color:"var(--navy)",padding:"6px 8px"}}
                     value={active.name} onChange={e=>onUpdateGroup(activeId,{name:e.target.value})}
@@ -5227,7 +5266,7 @@ tbody tr:hover td{background:#faf7f2;}
   },[stage4Snap, ciaEntries, stakeholderGroups, stakeholderRows]);
 
   const ciaAssessedCount=ciaEntries.length;
-  const saAssessedCount=stakeholderRows.filter(r=>ADKAR_D.some(d=>r[d])).length;
+  const saAssessedCount=stakeholderRows.filter(r=>ADKAR_D.every(d=>r[d])).length;
   const saGroupCount=stakeholderGroups.length;
 
   // ── Pulse — rule-based observation engine ──
@@ -5390,7 +5429,7 @@ tbody tr:hover td{background:#faf7f2;}
       // SA groups with no ADKAR data near go-live
       const unassessedGroups=stakeholderGroups.filter(g=>{
         const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
-        return !ADKAR_D.some(d=>row[d]);
+        return !ADKAR_D.every(d=>row[d]);
       });
       if(unassessedGroups.length>0&&daysLeft<=45){
         obs.push({
