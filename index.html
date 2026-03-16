@@ -3866,37 +3866,7 @@ function CIAPage({entries,stakeholderGroups,lanes,phases,onAdd,onAddWithData,onU
       </div>
 
 
-      {/* ── CIA magnitude distribution bar ── */}
-      {entries.length>0&&(()=>{
-        const high=entries.filter(e=>e.magnitude==="High").length;
-        const med=entries.filter(e=>e.magnitude==="Medium").length;
-        const low=entries.filter(e=>e.magnitude==="Low").length;
-        const other=entries.length-high-med-low;
-        const total=entries.length;
-        const pct=n=>total?Math.round((n/total)*100):0;
-        return(
-          <div style={{padding:"10px 28px",background:"var(--white)",borderBottom:"1px solid var(--border)",flexShrink:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <span style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)",flexShrink:0}}>MAGNITUDE</span>
-              <div style={{flex:1,height:8,borderRadius:999,overflow:"hidden",background:"var(--off2)",display:"flex"}}>
-                {high>0&&<div style={{width:`${pct(high)}%`,background:"#cc5050",transition:"width .3s"}}/>}
-                {med>0&&<div style={{width:`${pct(med)}%`,background:"#d4a020",transition:"width .3s"}}/>}
-                {low>0&&<div style={{width:`${pct(low)}%`,background:"#5a9e70",transition:"width .3s"}}/>}
-                {other>0&&<div style={{width:`${pct(other)}%`,background:"var(--slate2)"}}/>}
-              </div>
-              <div style={{display:"flex",gap:10,flexShrink:0}}>
-                {[["High","#cc5050","#fde8e8",high],["Medium","#d4a020","#fef3d0",med],["Low","#5a9e70","#dff3e8",low]].filter(([,,, n])=>n>0).map(([label,color,bg,n])=>(
-                  <span key={label} style={{display:"flex",alignItems:"center",gap:4,fontFamily:"var(--mono)",fontSize:11}}>
-                    <span style={{width:8,height:8,borderRadius:"50%",background:color,display:"inline-block"}}/>
-                    <span style={{fontWeight:900,color}}>{n}</span>
-                    <span style={{color:"var(--slate2)"}}>{label}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+
 
       {/* ── Filter bar ── */}
       {entries.length>0&&(
@@ -3978,7 +3948,7 @@ function CIAPage({entries,stakeholderGroups,lanes,phases,onAdd,onAddWithData,onU
                 </colgroup>
                 <thead>
                   <tr style={{background:"var(--off)"}}>
-                    {[["ID","left"],["CHANGE TITLE","left"],["WORKSTREAM","left"],["TIMING","left"],["MAG.","center"],["STAKEHOLDER GROUP","left"],["DESCRIPTION","left"],["",""]].map(([h,a])=>(
+                    {[["",""],["ID","left"],["CHANGE TITLE","left"],["WORKSTREAM","left"],["TIMING","left"],["MAG.","center"],["STAKEHOLDER GROUP","left"],["DESCRIPTION","left"],["",""]].map(([h,a])=>(
                       <th key={h} style={{textAlign:a,fontFamily:"var(--mono)",fontSize:10,fontWeight:900,
                         letterSpacing:".06em",color:"var(--slate2)",padding:"10px 12px",borderBottom:"1px solid var(--border)"}}>{h}</th>
                     ))}
@@ -6052,8 +6022,6 @@ If no map tasks are warranted, return an empty array for map.`;
         <div className="navBrand">
           <span className="brand-ocm">OCM</span>
           <span className="brand-studio">Studio</span>
-          <span className="brand-divider"/>
-          <span className="brand-project">{project.name}</span>
         </div>
         <div className="navDivider"/>
 
@@ -6532,6 +6500,12 @@ If no map tasks are warranted, return an empty array for map.`;
               {currentView==="map"&&mapControls?.FilterToggle&&(
                 <>{mapControls.FilterToggle}</>
               )}
+              {/* Project name */}
+              <span style={{
+                fontFamily:"var(--serif)",fontSize:14,fontWeight:800,color:"var(--navy)",
+                whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:280,
+              }}>{project.name}</span>
+              <span style={{width:1,height:14,background:"var(--border)",flexShrink:0}}/>
               {/* Tier badge */}
               <span style={{
                 fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",
