@@ -3753,204 +3753,10 @@ function CIAPage({entries,stakeholderGroups,lanes,phases,onAdd,onAddWithData,onU
   const [filterWS,setFilterWS]=useState("");
   const [filterGrp,setFilterGrp]=useState("");
 
-  // ── AI panel state ──
-  const [showAiPanel,setShowAiPanel]=useState(false);
-  const [showCiaAiPreflight,setShowCiaAiPreflight]=useState(false);
-  const [aiMode,setAiMode]=useState("generate"); // "generate" | "enrich" | "audit"
-  const [aiContext,setAiContext]=useState(""); // shared pasted context
-  const [aiLoading,setAiLoading]=useState(false);
-  const [aiError,setAiError]=useState("");
-  // Mode 1 — Generate
-  const [aiWS,setAiWS]=useState("");
-  const [aiPrompt,setAiPrompt]=useState("");
-  const [aiDrafts,setAiDrafts]=useState([]);
-  // Mode 2 — Enrich
-  const [enrichTargetId,setEnrichTargetId]=useState("");
-  const [enrichDraft,setEnrichDraft]=useState(null); // {field:suggestedValue,...}
-  // Mode 3 — Audit
-  const [auditResults,setAuditResults]=useState([]); // [{entryId,title,concern,severity:"High"|"Medium"|"Low",suggestion}]
-
-
-
   const MC={High:"#b84040",Medium:"#c48a1a",Low:"#4a9e6a"};
   const MB={High:"#fdf0f0",Medium:"#fdf8ec",Low:"#f0f7f2"};
   const groupLabel=(id)=>stakeholderGroups.find(g=>g.id===id)?.name||id;
 
-  const runAiGenerate=async()=>{
-
-    if(!aiWS){setAiError("Please select a workstream to focus the generation.");return;}
-    setAiLoading(true);setAiError("");setAiDrafts([]);
-    const existingSummary=entries.length>0
-      ?entries.map(e=>`- ${e.title||e.id}: ${e.description} (${e.magnitude||"unrated"})`).join("\n")
-      :"None yet.";
-    const groupNames=stakeholderGroups.map(g=>g.name).join(", ")||"None defined yet";
-    const prompt=`You are an expert OCM practitioner performing a Change Impact Analysis.
-
-PROJECT: ${project?.name||"Unnamed project"}
-DESCRIPTION: ${project?.description||"No description provided."}
-WORKSTREAM: ${aiWS}
-KNOWN STAKEHOLDER GROUPS: ${groupNames}
-EXISTING CIA ENTRIES (do not duplicate):
-${existingSummary}
-${aiContext?`\nCURRENT CONTEXT (treat as authoritative):\n${aiContext}`:""}
-${aiPrompt?`ADDITIONAL FOCUS: ${aiPrompt}`:""}
-
-Generate 4 high-quality Change Impact Analysis entries for the "${aiWS}" workstream. Each entry should represent a distinct, specific people-side change that employees will experience — not technical or system changes in isolation, but what those changes mean for people's work, behavior, and capabilities.
-
-Return ONLY a JSON array with exactly this structure:
-[
-  {
-    "title": "Short change name (5-8 words max)",
-    "description": "Plain language description of what is changing and what people will experience differently. 2-3 sentences.",
-    "currentState": "How this works today, from the employee perspective.",
-    "futureState": "How this will work after the change, from the employee perspective.",
-    "magnitude": "High|Medium|Low",
-    "impactTypes": ["Process"|"Tool"|"Role"|"Behavior"|"Structure"|"Policy"],
-    "implications": "What behavior change is required? What resistance is likely? What training or support will people need to adapt? Be specific."
-  }
-]
-
-Requirements:
-- Focus on people-side impacts, not technical implementation details
-- Be specific to this workstream and project context
-- Vary the magnitude across entries — not everything is High
-- impactTypes must only use values from the allowed list
-- Plain language throughout — avoid jargon`;
-
-    try{
-      const result=await callClaude(prompt);
-      const drafts=Array.isArray(result)?result:result.entries||[];
-      setAiDrafts(drafts.map((d,i)=>({...d,_draftId:`draft-${Date.now()}-${i}`,accepted:false,dismissed:false})));
-      if(drafts.length===0) setAiError("No entries were generated. Try adding more project description or adjusting the focus.");
-    }catch(e){
-      setAiError("Generation failed: "+e.message);
-    }
-    setAiLoading(false);
-  };
-
-  const acceptDraft=(draft)=>{
-    onAddWithData({
-      title:draft.title||"",
-      description:draft.description||"",
-      currentState:draft.currentState||"",
-      futureState:draft.futureState||"",
-      magnitude:draft.magnitude||"",
-      impactTypes:draft.impactTypes||[],
-      implications:draft.implications||"",
-      workstream:aiWS,
-    });
-    setAiDrafts(prev=>prev.map(d=>d._draftId===draft._draftId?{...d,accepted:true}:d));
-  };
-
-  const dismissDraft=(draftId)=>{
-    setAiDrafts(prev=>prev.map(d=>d._draftId===draftId?{...d,dismissed:true}:d));
-  };
-
-  // ── Mode 2: Enrich ──
-  const runAiEnrich=async()=>{
-    if(!enrichTargetId){setAiError("Select an entry to enrich.");return;}
-    const entry=entries.find(e=>e.id===enrichTargetId);
-    if(!entry){setAiError("Entry not found.");return;}
-    setAiLoading(true);setAiError("");setEnrichDraft(null);
-    const groupNames=(entry.impactedGroups||[]).map(id=>stakeholderGroups.find(g=>g.id===id)?.name||id).filter(Boolean);
-    const prompt=`You are an expert OCM practitioner. A user wants to enrich an existing Change Impact Analysis entry using new context information.
-
-PROJECT: ${project?.name||"Unnamed"}
-${project?.description?`PROJECT DESCRIPTION: ${project.description.slice(0,1000)}`:""}
-
-EXISTING ENTRY:
-Title: ${entry.title||"—"}
-Description: ${entry.description||"—"}
-Current State: ${entry.currentState||"—"}
-Future State: ${entry.futureState||"—"}
-Magnitude: ${entry.magnitude||"—"}
-Impact Types: ${(entry.impactTypes||[]).join(", ")||"—"}
-Impacted Groups: ${groupNames.join(", ")||"—"}
-People-Side Implications: ${entry.implications||"—"}
-Notes: ${entry.notes||"—"}
-
-NEW CONTEXT PROVIDED BY USER:
-${aiContext||"(none provided)"}
-
-Based on the new context, suggest improvements to any fields that would benefit. Only suggest changes where the new context genuinely adds value — do not change fields that are already accurate and complete.
-
-Return ONLY a JSON object with this structure (omit any field you are not suggesting a change to):
-{
-  "description": "improved description if warranted",
-  "currentState": "improved current state if warranted",
-  "futureState": "improved future state if warranted",
-  "magnitude": "High|Medium|Low — only if new context changes your assessment",
-  "impactTypes": ["array — only if new context reveals additional types"],
-  "implications": "improved people-side implications if new context adds specificity",
-  "notes": "additional notes or assumptions surfaced by the new context",
-  "_rationale": "1-2 sentences explaining what the new context revealed and why these fields were updated"
-}`;
-    try{
-      const result=await callClaude(prompt);
-      if(typeof result==="object"&&!Array.isArray(result)){
-        setEnrichDraft(result);
-      } else {
-        setAiError("Unexpected response format. Try again.");
-      }
-    }catch(e){setAiError("Enrichment failed: "+e.message);}
-    setAiLoading(false);
-  };
-
-  const acceptEnrichField=(field,value)=>{
-    onUpdate(enrichTargetId,{[field]:value});
-    setEnrichDraft(prev=>({...prev,[`_accepted_${field}`]:true}));
-  };
-
-  // ── Mode 3: Audit ──
-  const runAiAudit=async()=>{
-    if(entries.length===0){setAiError("No CIA entries to audit.");return;}
-    if(!aiContext.trim()){setAiError("Paste context information above before running the audit.");return;}
-    setAiLoading(true);setAiError("");setAuditResults([]);
-    const entrySummaries=entries.map(e=>`ID: ${e.id}
-Title: ${e.title||"Untitled"}
-Workstream: ${e.workstream||"—"}
-Description: ${e.description||"—"}
-Current State: ${e.currentState||"—"}
-Future State: ${e.futureState||"—"}
-Magnitude: ${e.magnitude||"—"}
-Implications: ${e.implications||"—"}`).join("\n\n---\n\n");
-
-    const prompt=`You are an expert OCM practitioner auditing a Change Impact Analysis register against new context information.
-
-PROJECT: ${project?.name||"Unnamed"}
-
-NEW CONTEXT (provided by user — treat this as the current source of truth):
-${aiContext}
-
-EXISTING CIA ENTRIES:
-${entrySummaries}
-
-Review each CIA entry against the new context. Identify entries that are:
-- Outdated (the situation described has changed)
-- Incomplete (the new context reveals missing impacts or affected groups)
-- Inaccurate (the magnitude, current state, or future state conflicts with the new context)
-- Contradicted (the new context directly contradicts something in the entry)
-
-Only flag entries where you have a specific, concrete concern grounded in the new context. Do not flag entries that appear accurate and complete. It is fine to return an empty array if all entries look good.
-
-Return ONLY a JSON array:
-[
-  {
-    "entryId": "the entry ID string exactly as provided",
-    "title": "entry title for display",
-    "severity": "High|Medium|Low",
-    "concern": "Specific issue found — what is wrong or missing, referencing the new context.",
-    "suggestion": "Concrete suggestion for how to update this entry."
-  }
-]`;
-    try{
-      const result=await callClaude(prompt);
-      const flags=Array.isArray(result)?result:[];
-      setAuditResults(flags);
-      if(flags.length===0) setAiError("✓ All entries look consistent with the provided context. No issues found.");
-    }catch(e){setAiError("Audit failed: "+e.message);}
-    setAiLoading(false);
-  };
 
   const impactedCount=[...new Set(entries.flatMap(e=>e.impactedGroups||[]))].length;
   const highCount=entries.filter(e=>e.magnitude==="High").length;
@@ -4001,275 +3807,10 @@ Return ONLY a JSON array:
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"flex-start",flexShrink:0}}>
-          <button className="btn btn-ghost" style={{fontSize:12,padding:"7px 14px",display:"flex",alignItems:"center",gap:6,
-            borderColor:"#c96a3a",color:"#c96a3a"}}
-            onClick={()=>{ if(showAiPanel){ setShowAiPanel(false);setAiDrafts([]);setAiError(""); } else { setShowCiaAiPreflight(true); } }}>
-            {showAiPanel?"✕ Close AI":"✦ Update with AI"}
-          </button>
           <button className="btn btn-primary" style={{fontSize:13,padding:"8px 18px"}} onClick={onAdd}>+ Add Change</button>
         </div>
       </div>
 
-      {/* CIA AI preflight modal */}
-      {showCiaAiPreflight&&(
-        <AiPreflightModal
-          title="Update with AI — Change Impact Analysis"
-          bullets={[
-            "Three modes: Generate (draft new impacts from project context), Enrich (add depth to existing entries), Audit (identify gaps or inconsistencies)",
-            "Generate and Enrich produce draft text only — nothing is saved until you click Apply on each field",
-            "Audit mode provides critique and flags — it does not modify any entry directly",
-            "All changes are reversible: you apply each suggestion individually",
-          ]}
-          onConfirm={()=>{ setShowCiaAiPreflight(false); setShowAiPanel(true); }}
-          onCancel={()=>setShowCiaAiPreflight(false)}
-        />
-      )}
-
-      {/* ── AI Panel ── */}
-      {showAiPanel&&(
-        <div style={{margin:"0 28px 4px",borderRadius:12,border:"1.5px solid #f0d0b8",
-          background:"linear-gradient(135deg,#fdf8f2 0%,#fdfaf7 100%)",flexShrink:0,overflow:"hidden",
-          display:"flex",minHeight:0}}>
-
-          {/* ── Left sidebar: branding + mode tabs + context ── */}
-          <div style={{width:248,flexShrink:0,borderRight:"1.5px solid #f0d0b8",
-            background:"linear-gradient(180deg,#fdf4ec 0%,#fdf8f4 100%)",
-            padding:"18px 16px",display:"flex",flexDirection:"column",gap:12}}>
-
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <span style={{fontSize:13,color:"#c96a3a"}}>✦</span>
-              <div style={{fontFamily:"var(--mono)",fontSize:11,fontWeight:900,letterSpacing:".08em",color:"#c96a3a"}}>AI ASSISTANT</div>
-            </div>
-
-            <div style={{display:"flex",flexDirection:"column",gap:3}}>
-              {[
-                ["generate","✦ Generate","Draft new entries from project context"],
-                ["enrich","⊕ Enrich","Deepen an existing entry with suggestions"],
-                ["audit","⊙ Audit","Flag entries that may be outdated or incomplete"],
-              ].map(([m,label,desc])=>(
-                <button key={m}
-                  onClick={()=>{setAiMode(m);setAiError("");setAiDrafts([]);setEnrichDraft(null);setAuditResults([]);}}
-                  style={{textAlign:"left",padding:"9px 11px",borderRadius:9,cursor:"pointer",
-                    border:`1.5px solid ${aiMode===m?"#c96a3a":"transparent"}`,
-                    background:aiMode===m?"var(--white)":"transparent",
-                    boxShadow:aiMode===m?"0 1px 6px rgba(201,106,58,.10)":"none",
-                    transition:"all .12s"}}>
-                  <div style={{fontFamily:"var(--mono)",fontSize:11,fontWeight:900,
-                    color:aiMode===m?"#c96a3a":"var(--slate)",marginBottom:2,letterSpacing:".02em"}}>{label}</div>
-                  <div style={{fontSize:11,color:"var(--slate2)",lineHeight:1.35}}>{desc}</div>
-                </button>
-              ))}
-            </div>
-
-            <div style={{flex:1,display:"flex",flexDirection:"column",gap:5,minHeight:0}}>
-              <label style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em"}}>
-                {aiMode==="audit"?"CONTEXT (required)":"CONTEXT (optional)"}
-              </label>
-              <textarea className="inp" style={{flex:1,minHeight:108,fontSize:12,padding:"8px 10px",
-                lineHeight:1.55,boxSizing:"border-box",resize:"none",background:"var(--white)"}}
-                value={aiContext} onChange={e=>setAiContext(e.target.value)}
-                placeholder={
-                  aiMode==="audit"?"Paste scope changes, org announcements, or new decisions for the AI to audit against…":
-                  aiMode==="enrich"?"Paste context relevant to the selected entry…":
-                  "Paste project context — announcements, meeting notes, scope docs…"
-                }/>
-            </div>
-          </div>
-
-          {/* ── Right main: mode-specific controls + output ── */}
-          <div style={{flex:1,minWidth:0,padding:"20px 22px",overflowY:"auto",maxHeight:460,
-            display:"flex",flexDirection:"column",gap:14}}>
-
-          {/* ── Mode 1: Generate ── */}
-          {aiMode==="generate"&&(
-            <div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-                <div>
-                  <label style={{fontSize:11,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:5}}>WORKSTREAM</label>
-                  <select className="inp" style={{width:"100%",fontSize:13,padding:"7px 10px"}}
-                    value={aiWS} onChange={e=>setAiWS(e.target.value)}>
-                    <option value="">— Select workstream to focus —</option>
-                    {lanes.map(l=><option key={l} value={l}>{l}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{fontSize:11,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:5}}>ADDITIONAL FOCUS <span style={{fontWeight:400}}>(optional)</span></label>
-                  <input className="inp" style={{width:"100%",fontSize:13,padding:"7px 10px"}}
-                    value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)}
-                    placeholder="e.g. focus on manager impacts, Day-1 readiness…"/>
-                </div>
-              </div>
-              {aiError&&<div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"8px 12px",marginBottom:10}}>{aiError}</div>}
-              <button className="btn btn-primary" style={{fontSize:13,padding:"8px 20px",display:"flex",alignItems:"center",gap:8}}
-                onClick={runAiGenerate} disabled={aiLoading||!aiWS}>
-                {aiLoading?<><span style={{width:12,height:12,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Generating…</>:"✦ Generate Draft Entries"}
-              </button>
-              {/* Draft cards */}
-              {aiDrafts.filter(d=>!d.dismissed).length>0&&(
-                <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:10}}>
-                  <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)"}}>
-                    REVIEW DRAFTS — accept entries to add them to your CIA
-                  </div>
-                  {aiDrafts.filter(d=>!d.dismissed).map(draft=>{
-                    const MC2={High:"#b84040",Medium:"#c48a1a",Low:"#4a9e6a"};
-                    const MB2={High:"#fdf0f0",Medium:"#fdf8ec",Low:"#f0f7f2"};
-                    return(
-                      <div key={draft._draftId} style={{background:draft.accepted?"#f0f7f2":"var(--white)",
-                        border:`1px solid ${draft.accepted?"#a8d8b8":"var(--border)"}`,
-                        borderRadius:10,padding:"14px 16px",opacity:draft.accepted?.7:1}}>
-                        <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:8}}>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:800,color:"var(--navy)",marginBottom:3}}>{draft.title}</div>
-                            <div style={{fontSize:12,color:"var(--slate)",lineHeight:1.5,marginBottom:6}}>{draft.description}</div>
-                            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                              {draft.magnitude&&<span style={{fontSize:10,fontWeight:900,fontFamily:"var(--mono)",color:MC2[draft.magnitude],background:MB2[draft.magnitude],borderRadius:4,padding:"1px 7px"}}>{draft.magnitude}</span>}
-                              {(draft.impactTypes||[]).map(t=><span key={t} style={{fontSize:10,color:"var(--slate2)",fontFamily:"var(--mono)",background:"var(--off2)",borderRadius:4,padding:"1px 6px",border:"1px solid var(--border)"}}>{t}</span>)}
-                            </div>
-                          </div>
-                          <div style={{display:"flex",gap:6,flexShrink:0}}>
-                            {!draft.accepted&&<button className="btn btn-primary" style={{fontSize:11,padding:"5px 12px"}} onClick={()=>acceptDraft(draft)}>✓ Accept</button>}
-                            {draft.accepted&&<span style={{fontSize:11,fontWeight:900,color:"#4a9e6a",padding:"5px 0"}}>✓ Added</span>}
-                            {!draft.accepted&&<button className="btn btn-ghost" style={{fontSize:11,padding:"5px 10px"}} onClick={()=>dismissDraft(draft._draftId)}>Dismiss</button>}
-                          </div>
-                        </div>
-                        {draft.implications&&(
-                          <div style={{fontSize:11,color:"var(--slate)",lineHeight:1.5,background:"var(--off)",borderRadius:6,padding:"7px 10px",borderLeft:"2px solid #f0d0b8"}}>
-                            <span style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:3}}>IMPLICATIONS</span>
-                            {draft.implications}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {aiDrafts.every(d=>d.accepted||d.dismissed)&&(
-                    <div style={{textAlign:"center",padding:"10px 0"}}>
-                      <button className="btn btn-ghost" style={{fontSize:12}} onClick={()=>{setAiDrafts([]);setAiPrompt("");}}>↺ Generate more</button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Mode 2: Enrich ── */}
-          {aiMode==="enrich"&&(
-            <div>
-              <div style={{marginBottom:12}}>
-                <label style={{fontSize:11,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:5}}>SELECT ENTRY TO ENRICH</label>
-                <select className="inp" style={{width:"100%",fontSize:13,padding:"7px 10px"}}
-                  value={enrichTargetId} onChange={e=>{setEnrichTargetId(e.target.value);setEnrichDraft(null);setAiError("");}}>
-                  <option value="">— Select an existing CIA entry —</option>
-                  {entries.map(e=><option key={e.id} value={e.id}>{e.title||e.id}{e.workstream?` (${e.workstream})`:""}</option>)}
-                </select>
-              </div>
-              {aiError&&<div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"8px 12px",marginBottom:10}}>{aiError}</div>}
-              <button className="btn btn-primary" style={{fontSize:13,padding:"8px 20px",display:"flex",alignItems:"center",gap:8}}
-                onClick={runAiEnrich} disabled={aiLoading||!enrichTargetId}>
-                {aiLoading?<><span style={{width:12,height:12,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Analyzing…</>:"✦ Suggest Enrichments"}
-              </button>
-              {/* Enrich results — field-by-field */}
-              {enrichDraft&&(()=>{
-                const FIELD_LABELS={description:"Description",currentState:"Current State",futureState:"Future State",magnitude:"Magnitude",impactTypes:"Impact Types",implications:"People-Side Implications",notes:"Notes"};
-                const fields=Object.keys(FIELD_LABELS).filter(f=>enrichDraft[f]!==undefined&&f!=="_rationale"&&!f.startsWith("_accepted_"));
-                return(
-                  <div style={{marginTop:16}}>
-                    {enrichDraft._rationale&&(
-                      <div style={{fontSize:12,color:"var(--slate)",background:"var(--off)",borderRadius:8,padding:"10px 12px",marginBottom:12,lineHeight:1.6,borderLeft:"3px solid #c96a3a"}}>
-                        <span style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"#c96a3a",letterSpacing:".06em",display:"block",marginBottom:4}}>WHY THESE CHANGES</span>
-                        {enrichDraft._rationale}
-                      </div>
-                    )}
-                    <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)",marginBottom:10}}>
-                      SUGGESTED FIELD UPDATES — accept individually
-                    </div>
-                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                      {fields.length===0&&<div style={{fontSize:12,color:"var(--slate)",fontStyle:"italic"}}>No field updates suggested — the entry already looks complete given the context.</div>}
-                      {fields.map(field=>{
-                        const accepted=enrichDraft[`_accepted_${field}`];
-                        const val=enrichDraft[field];
-                        const displayVal=Array.isArray(val)?val.join(", "):val;
-                        return(
-                          <div key={field} style={{background:accepted?"#f0f7f2":"var(--white)",border:`1px solid ${accepted?"#a8d8b8":"var(--border)"}`,borderRadius:9,padding:"12px 14px"}}>
-                            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
-                              <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",marginBottom:4}}>{FIELD_LABELS[field]}</div>
-                                <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.6}}>{displayVal}</div>
-                              </div>
-                              <div style={{flexShrink:0}}>
-                                {accepted
-                                  ?<span style={{fontSize:11,fontWeight:900,color:"#4a9e6a"}}>✓ Applied</span>
-                                  :<button className="btn btn-primary" style={{fontSize:11,padding:"4px 12px"}}
-                                    onClick={()=>acceptEnrichField(field,val)}>Apply</button>
-                                }
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* ── Mode 3: Audit ── */}
-          {aiMode==="audit"&&(
-            <div>
-              <div style={{fontSize:12,color:"var(--slate)",lineHeight:1.6,marginBottom:12,padding:"10px 12px",background:"var(--off)",borderRadius:8}}>
-                Paste updated context above — stakeholder changes, scope updates, org announcements, new decisions — and the AI will scan your existing CIA entries for anything that may be outdated, incomplete, or contradicted.
-              </div>
-              {aiError&&(
-                <div style={{fontSize:12,borderRadius:8,padding:"8px 12px",marginBottom:10,
-                  color:aiError.startsWith("✓")?"#4a7c59":"#b84040",
-                  background:aiError.startsWith("✓")?"#f0f7f2":"#fdf0f0",
-                  border:`1px solid ${aiError.startsWith("✓")?"#a8d8b8":"#f0c0c0"}`}}>
-                  {aiError}
-                </div>
-              )}
-              <button className="btn btn-primary" style={{fontSize:13,padding:"8px 20px",display:"flex",alignItems:"center",gap:8}}
-                onClick={runAiAudit} disabled={aiLoading||entries.length===0}>
-                {aiLoading?<><span style={{width:12,height:12,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Auditing…</>:`✦ Audit ${entries.length} Entr${entries.length===1?"y":"ies"}`}
-              </button>
-              {auditResults.length>0&&(
-                <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:10}}>
-                  <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)"}}>
-                    {auditResults.length} ISSUE{auditResults.length!==1?"S":""} FOUND — click an entry to open it
-                  </div>
-                  {auditResults.map((r,i)=>{
-                    const SC={High:"#b84040",Medium:"#c48a1a",Low:"#4a9e6a"};
-                    const SB={High:"#fdf0f0",Medium:"#fdf8ec",Low:"#f0f7f2"};
-                    return(
-                      <div key={i} style={{background:"var(--white)",border:"1px solid var(--border)",borderRadius:10,padding:"14px 16px"}}>
-                        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:8}}>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:800,color:"var(--navy)",marginBottom:3}}>{r.title}</div>
-                            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
-                              <span style={{fontSize:10,fontWeight:900,fontFamily:"var(--mono)",color:SC[r.severity],background:SB[r.severity],borderRadius:4,padding:"1px 7px"}}>{r.severity}</span>
-                              <span style={{fontSize:11,color:"var(--slate2)",fontFamily:"var(--mono)"}}>{r.entryId}</span>
-                            </div>
-                            <div style={{fontSize:12,color:"#b84040",lineHeight:1.5,marginBottom:6}}>{r.concern}</div>
-                            <div style={{fontSize:12,color:"var(--slate)",lineHeight:1.5,background:"var(--off)",borderRadius:6,padding:"7px 10px",borderLeft:"2px solid #c96a3a"}}>
-                              <span style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"#c96a3a",letterSpacing:".06em",display:"block",marginBottom:3}}>SUGGESTION</span>
-                              {r.suggestion}
-                            </div>
-                          </div>
-                          <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 10px",flexShrink:0}}
-                            onClick={()=>{setActiveId(r.entryId);setShowAiPanel(false);}}>
-                            Open →
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          </div>{/* end right main */}
-        </div>
-      )}
 
       {/* ── CIA magnitude distribution bar ── */}
       {entries.length>0&&(()=>{
@@ -4714,144 +4255,6 @@ function SAPage({groups,rows,ciaEntries,showIndicators,setShowIndicators,adkarDo
   const LC={Low:"#b84040",Medium:"#c48a1a",High:"#4a9e6a"};
   const LB={Low:"#fdf0f0",Medium:"#fdf8ec",High:"#f0f7f2"};
 
-  const [showAiPreflight,setShowAiPreflight]=React.useState(false);
-  const [showBootstrap,setShowBootstrap]=React.useState(false);
-  const [addGroupMenuOpen,setAddGroupMenuOpen]=React.useState(false);
-  const addGroupMenuRef=useRef(null);
-  useEffect(()=>{
-    if(!addGroupMenuOpen) return;
-    const handler=(e)=>{ if(addGroupMenuRef.current&&!addGroupMenuRef.current.contains(e.target)) setAddGroupMenuOpen(false); };
-    document.addEventListener("mousedown",handler);
-    return()=>document.removeEventListener("mousedown",handler);
-  },[addGroupMenuOpen]);
-
-  // ── Bootstrap AI ──
-  const [bootstrapContext,setBootstrapContext]=React.useState("");
-  const [bootstrapLoading,setBootstrapLoading]=React.useState(false);
-  const [bootstrapError,setBootstrapError]=React.useState("");
-  const [bootstrapDrafts,setBootstrapDrafts]=React.useState([]);
-  const [bootstrapExcluded,setBootstrapExcluded]=React.useState([]);
-
-  const runBootstrapAi=async()=>{
-    setBootstrapLoading(true);setBootstrapError("");setBootstrapDrafts([]);
-    const prompt=`You are an expert OCM strategist. Based on the project context below, identify the stakeholder groups who are CHANGE RECIPIENTS — people who will need to change how they work, what tools they use, what behaviors they demonstrate, or what processes they follow as a result of this initiative.
-
-PROJECT CONTEXT:
-${bootstrapContext.slice(0,4000)}
-
-CRITICAL DISTINCTION:
-- Change recipients = groups who must adopt new behaviors, tools, processes, or ways of working. These belong in the stakeholder assessment.
-- Change agents / delivery roles = project team members, trainers, comms leads, IT implementers, GRC specialists, OCM practitioners, steering committees. These are delivering the change, not receiving it. Do NOT include them as assessment groups.
-
-If you identify any delivery or project roles in the context, list them separately in the "excludedRoles" array with a brief note explaining why they were excluded.
-
-Return ONLY valid JSON, no markdown, no explanation:
-
-{"groups":[{"name":"group name","department":"department or function if identifiable","stakeholderType":"Direct or Indirect or External","disposition":"Supportive or Neutral or Resistant or Unknown","rationale":"1-2 sentences describing specifically what is changing for this group and what adoption challenge they face"}],"excludedRoles":[{"name":"role or group name","reason":"brief explanation of why this is a delivery role, not a change recipient"}]}
-
-Rules:
-- Focus on who must change, not who is involved
-- The rationale must describe a specific behavior, tool, or process change this group faces — not just that they are "affected"
-- Use specific group names where possible (e.g. "Branch Operations Staff" not just "Operations")
-- stakeholderType must be exactly: Direct, Indirect, or External
-- disposition must be exactly: Supportive, Neutral, Resistant, or Unknown
-- If no delivery roles are identified, return an empty array for excludedRoles`;
-    try{
-      const res=await fetch("/api/claude",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-5",
-          max_tokens:2000,
-          system:"You are an expert OCM strategist. Return ONLY valid JSON — no markdown, no explanation, no backticks.",
-          messages:[{role:"user",content:prompt}]
-        })
-      });
-      if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e?.error||`HTTP ${res.status}`);}
-      const data=await res.json();
-      const raw=(data.content||[]).map(c=>c.text||"").join("").trim()
-        .replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
-      const parsed=JSON.parse(raw);
-      const drafts=(parsed.groups||[]).map((g,i)=>({...g,_draftId:`bootstrap_${i}`,accepted:false,dismissed:false}));
-      setBootstrapDrafts(drafts);
-      setBootstrapExcluded(parsed.excludedRoles||[]);
-    }catch(e){
-      setBootstrapError("Generation failed: "+e.message);
-    }
-    setBootstrapLoading(false);
-  };
-
-  // ── Single-group Enrich/Update AI ──
-  const [enrichLoading,setEnrichLoading]=React.useState(false);
-  const [enrichError,setEnrichError]=React.useState("");
-  const [enrichDraft,setEnrichDraft]=React.useState(null);
-  const [drawerAiMode,setDrawerAiMode]=React.useState("enrich"); // "enrich" | "update"
-  const [showDrawerUpdateInput,setShowDrawerUpdateInput]=React.useState(false);
-  const [drawerUpdateContext,setDrawerUpdateContext]=React.useState("");
-
-  const runEnrichGroup=async(groupId, extraContext="")=>{
-    const g=groups.find(x=>x.id===groupId);
-    const row=rows.find(r=>r.groupId===groupId)||{};
-    if(!g) return;
-    setEnrichLoading(true);setEnrichError("");setEnrichDraft(null);
-    const projectContext=ciaEntries.map(e=>`${e.title||e.id}: ${e.description} (${e.magnitude})`).join("\n")||"No CIA entries logged.";
-    const prompt=`You are an expert OCM strategist. Enrich the stakeholder group profile below by suggesting content for any fields that are empty or sparse.
-
-GROUP NAME: ${g.name}
-DEPARTMENT: ${g.department||"not set"}
-TYPE: ${g.stakeholderType||"not set"}
-IMPACT LEVEL: ${g.impactLevel||"not set"}/5
-INFLUENCE: ${g.influence||"not set"}/5
-DISPOSITION: ${g.disposition||"not set"}
-ADKAR — Awareness: ${row.awareness||"not set"}, Desire: ${row.desire||"not set"}, Knowledge: ${row.knowledge||"not set"}, Ability: ${row.ability||"not set"}, Reinforcement: ${row.reinforcement||"not set"}
-BARRIERS: ${row.barriersToChange||"not set"}
-WIIFM: ${row.wiifm||"not set"}
-RESISTANCE NOTES: ${row.resistanceNotes||"not set"}
-ENGAGEMENT STRATEGY: ${row.engagementStrategy||"not set"}
-
-CHANGE IMPACTS AFFECTING THIS PROJECT:
-${projectContext}
-${extraContext.trim()?`\nADDITIONAL CONTEXT PROVIDED BY PRACTITIONER:\n${extraContext.slice(0,3000)}`:""}
-
-Return ONLY valid JSON — no markdown, no explanation:
-{"awareness":"High or Medium or Low or leave blank if unclear","desire":"High or Medium or Low or leave blank","knowledge":"High or Medium or Low or leave blank","ability":"High or Medium or Low or leave blank","reinforcement":"High or Medium or Low or leave blank","barriersToChange":"suggested text or empty string if already filled","wiifm":"suggested text or empty string if already filled","resistanceNotes":"suggested text or empty string if already filled","engagementStrategy":"suggested text or empty string if already filled","rationale":"2-3 sentences explaining the overall readiness picture for this group and key recommendations"}
-
-Rules:
-- Only suggest ADKAR values where the change impacts and group profile genuinely support a judgment
-- Do not overwrite fields that already have substantive content — return an empty string for those
-- Base suggestions on the change impacts and group characteristics above`;
-    try{
-      const res=await fetch("/api/claude",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-5",
-          max_tokens:1200,
-          system:"You are an expert OCM strategist. Return ONLY valid JSON — no markdown, no explanation, no backticks.",
-          messages:[{role:"user",content:prompt}]
-        })
-      });
-      if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e?.error||`HTTP ${res.status}`);}
-      const data=await res.json();
-      const raw=(data.content||[]).map(c=>c.text||"").join("").trim()
-        .replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
-      const parsed=JSON.parse(raw);
-      setEnrichDraft({groupId,...parsed});
-    }catch(e){
-      setEnrichError("Enrich failed: "+e.message);
-    }
-    setEnrichLoading(false);
-  };
-
-  const applyEnrichDraft=(groupId,draft)=>{
-    const patch={};
-    const rowPatch={};
-    const ADKAR_KEYS=["awareness","desire","knowledge","ability","reinforcement"];
-    ADKAR_KEYS.forEach(k=>{ if(draft[k]) rowPatch[k]=draft[k]; });
-    ["barriersToChange","wiifm","resistanceNotes","engagementStrategy"].forEach(k=>{ if(draft[k]) rowPatch[k]=draft[k]; });
-    if(Object.keys(rowPatch).length) onUpdateRow(groupId,rowPatch);
-    setEnrichDraft(null);setEnrichError("");
-  };
 
   const runAiUpdate=async()=>{
     setAiLoading(true);setAiError("");
@@ -4924,67 +4327,12 @@ Keep responses concise and actionable. Format with clear sections.`;
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"flex-start",flexShrink:0,flexWrap:"wrap"}}>
-          {/* Update with AI — module-level analysis */}
-          <button className="btn btn-ghost" style={{fontSize:12,padding:"7px 14px",display:"flex",alignItems:"center",gap:6,
-            borderColor:groups.length===0?"var(--border)":"#c96a3a",
-            color:groups.length===0?"var(--slate2)":"#c96a3a",
-            opacity:groups.length===0?0.5:1,
-            cursor:groups.length===0?"not-allowed":"pointer"}}
-            title={groups.length===0?"Add groups first to use Update with AI":"Analyze all groups and generate a readiness report"}
-            onClick={()=>{ if(groups.length===0) return; setShowAiPreflight(true); }} disabled={aiLoading}>
-            {aiLoading?<span style={{width:11,height:11,border:"2px solid #c96a3a33",borderTopColor:"#c96a3a",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>:"✦"}
-            {aiLoading?"Analyzing…":"Update with AI"}
-          </button>
-
-          {/* Add Group — split button with dropdown */}
-          <div style={{position:"relative",display:"inline-flex"}}>
-            <button className="btn btn-primary" style={{fontSize:13,padding:"8px 14px",borderRadius:"999px 0 0 999px",borderRight:"1px solid rgba(255,255,255,.25)"}}
-              onClick={()=>setAdding(true)}>+ Add Group</button>
-            <button className="btn btn-primary" style={{fontSize:12,padding:"8px 10px",borderRadius:"0 999px 999px 0",minWidth:0}}
-              onClick={()=>setAddGroupMenuOpen(v=>!v)}
-              title="Add groups using AI">▾</button>
-            {addGroupMenuOpen&&(
-              <div className="menu" style={{top:38,right:0,minWidth:220}} ref={addGroupMenuRef}>
-                <button onClick={()=>{setAdding(true);setAddGroupMenuOpen(false);}}>
-                  <div style={{fontWeight:900,fontSize:13}}>✏ Add manually</div>
-                  <div style={{fontSize:11,color:"var(--slate2)",fontWeight:400,marginTop:2}}>Type a group name directly</div>
-                </button>
-                <button onClick={()=>{setShowBootstrap(v=>!v);setAddGroupMenuOpen(false);}}>
-                  <div style={{fontWeight:900,fontSize:13}}>✦ Generate with AI</div>
-                  <div style={{fontSize:11,color:"var(--slate2)",fontWeight:400,marginTop:2}}>Paste context and draft groups automatically</div>
-                </button>
-              </div>
-            )}
-          </div>
+          <button className="btn btn-primary" style={{fontSize:13,padding:"8px 16px"}}
+            onClick={()=>setAdding(true)}>+ Add Group</button>
         </div>
       </div>
 
-      {/* SA AI preflight modal */}
-      {showAiPreflight&&(
-        <AiPreflightModal
-          title="Update with AI — Stakeholder Assessment"
-          bullets={[
-            "Reads all stakeholder group data (name, type, impact level, influence, disposition, barriers, WIIFM)",
-            "Generates a narrative readiness report and recommended ADKAR score adjustments for each group",
-            "Output appears as an editable text panel below — your existing scores are NOT automatically changed",
-            "Review the analysis, then manually update scores or copy narrative into group detail fields",
-          ]}
-          onConfirm={()=>{ setShowAiPreflight(false); runAiUpdate(); }}
-          onCancel={()=>setShowAiPreflight(false)}
-        />
-      )}
 
-      {/* AI output panel */}
-      {aiError&&(
-        <div style={{margin:"0 28px",padding:"12px 16px",borderRadius:10,
-          background:aiError.startsWith("Error")?"#fdf0f0":"#f0f7f2",
-          border:`1px solid ${aiError.startsWith("Error")?"#f0c0c0":"#a8d8b8"}`,
-          fontSize:13,color:"var(--navy)",lineHeight:1.7,whiteSpace:"pre-wrap",flexShrink:0,
-          display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
-          <div style={{flex:1}}>{aiError}</div>
-          <button className="iconBtn" style={{flexShrink:0}} onClick={()=>setAiError("")}>✕</button>
-        </div>
-      )}
 
       {/* ── Filter bar ── */}
       {groups.length>0&&(
@@ -5058,103 +4406,6 @@ Keep responses concise and actionable. Format with clear sections.`;
             </div>
           )}
 
-          {/* ── Bootstrap AI panel — persistent, toggled from header ── */}
-          {showBootstrap&&(
-            <div style={{background:"var(--white)",border:"1.5px solid #a8d8b8",borderRadius:12,padding:"18px 20px",maxWidth:680}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,color:"#5a8a70",letterSpacing:".08em"}}>✦ GENERATE GROUPS WITH AI</div>
-                <button className="iconBtn" onClick={()=>setShowBootstrap(false)}>✕</button>
-              </div>
-              <div style={{fontSize:12,color:"var(--slate)",lineHeight:1.6,marginBottom:10}}>
-                Paste a project description, org chart, stakeholder list, or any relevant context. OCM Studio will draft an initial set of stakeholder groups for you to review and accept individually.
-              </div>
-              <textarea className="inp" style={{width:"100%",minHeight:100,fontSize:12,padding:"9px 11px",lineHeight:1.6,marginBottom:10,resize:"vertical"}}
-                value={bootstrapContext} onChange={e=>setBootstrapContext(e.target.value)}
-                placeholder="Paste project description, org chart excerpt, stakeholder list, or any relevant context…"/>
-              {bootstrapError&&(
-                <div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"8px 10px",marginBottom:10}}>
-                  {bootstrapError}
-                </div>
-              )}
-              <button className="btn btn-primary" style={{fontSize:12,padding:"7px 18px",display:"flex",alignItems:"center",gap:8,background:"linear-gradient(135deg,#6aaa88,#5a8a70)",boxShadow:"0 2px 10px rgba(90,138,112,.28)"}}
-                onClick={runBootstrapAi} disabled={bootstrapLoading||!bootstrapContext.trim()}>
-                {bootstrapLoading
-                  ?<><span style={{width:12,height:12,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Generating groups…</>
-                  :"✦ Generate Groups"}
-              </button>
-              {bootstrapDrafts.length>0&&(
-                <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:8}}>
-                  <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)"}}>
-                    REVIEW DRAFTS — accept or dismiss each group
-                  </div>
-                  {bootstrapDrafts.map(draft=>{
-                    if(draft.dismissed) return null;
-                    return(
-                      <div key={draft._draftId} style={{background:draft.accepted?"#f0f7f2":"var(--white)",
-                        border:`1px solid ${draft.accepted?"#a8d8b8":"var(--border)"}`,
-                        borderRadius:10,padding:"12px 14px"}}>
-                        <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:800,color:"var(--navy)",marginBottom:3}}>{draft.name}</div>
-                            {draft.department&&<div style={{fontSize:11,fontFamily:"var(--mono)",color:"var(--slate2)",marginBottom:4}}>{draft.department}</div>}
-                            {draft.rationale&&<div style={{fontSize:12,color:"var(--slate)",lineHeight:1.5}}>{draft.rationale}</div>}
-                          </div>
-                          <div style={{display:"flex",gap:6,flexShrink:0}}>
-                            {!draft.accepted&&(
-                              <button className="btn btn-primary" style={{fontSize:11,padding:"5px 12px",background:"linear-gradient(135deg,#6aaa88,#5a8a70)",boxShadow:"none"}}
-                                onClick={()=>{
-                                  const id=onAddGroup(draft.name);
-                                  if(id&&draft.department) onUpdateGroup(id,{department:draft.department,stakeholderType:draft.stakeholderType||"",disposition:draft.disposition||""});
-                                  setBootstrapDrafts(prev=>prev.map(d=>d._draftId===draft._draftId?{...d,accepted:true}:d));
-                                }}>✓ Accept</button>
-                            )}
-                            {draft.accepted&&<span style={{fontSize:11,fontWeight:900,color:"#4a9e6a",padding:"5px 0"}}>✓ Added</span>}
-                            {!draft.accepted&&(
-                              <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 10px"}}
-                                onClick={()=>setBootstrapDrafts(prev=>prev.map(d=>d._draftId===draft._draftId?{...d,dismissed:true}:d))}>
-                                Dismiss
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {bootstrapExcluded.length>0&&(
-                    <div style={{background:"var(--off2)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px"}}>
-                      <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,letterSpacing:".08em",color:"var(--slate2)",marginBottom:8}}>
-                        DELIVERY ROLES — excluded from assessment
-                      </div>
-                      <div style={{fontSize:11,color:"var(--slate)",lineHeight:1.55,marginBottom:8}}>
-                        The following groups appear to be involved in delivering this change rather than receiving it, and have been excluded from the stakeholder assessment:
-                      </div>
-                      {bootstrapExcluded.map((r,i)=>(
-                        <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:i<bootstrapExcluded.length-1?6:0}}>
-                          <span style={{fontFamily:"var(--mono)",fontSize:11,fontWeight:900,color:"var(--slate)",flexShrink:0,minWidth:8}}>–</span>
-                          <div>
-                            <span style={{fontSize:12,fontWeight:700,color:"var(--navy)"}}>{r.name}</span>
-                            {r.reason&&<span style={{fontSize:11,color:"var(--slate2)",marginLeft:6}}>{r.reason}</span>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {bootstrapDrafts.every(d=>d.accepted||d.dismissed)&&(
-                    <div style={{display:"flex",gap:8,paddingTop:4}}>
-                      <button className="btn btn-ghost" style={{fontSize:12}}
-                        onClick={()=>{setBootstrapDrafts([]);setBootstrapContext("");setBootstrapExcluded([]);}}>
-                        ↺ Generate more
-                      </button>
-                      <button className="btn btn-ghost" style={{fontSize:12}}
-                        onClick={()=>{setBootstrapDrafts([]);setBootstrapContext("");setBootstrapExcluded([]);setShowBootstrap(false);}}>
-                        Done
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Heat map table — compact, left-anchored, auto width */}
           {groups.length>0&&(
@@ -5324,8 +4575,9 @@ Keep responses concise and actionable. Format with clear sections.`;
                   {showIndicators&&<span style={{width:11,height:11,borderRadius:"50%",flexShrink:0,
                     background:dotColor[adkarDot(activeRow)],display:"inline-block"}}/>}
                   <input className="inp" style={{fontSize:15,fontFamily:"var(--serif)",fontWeight:700,
-                    width:"100%",border:"none",background:"transparent",outline:"none",color:"var(--navy)",padding:"2px 0"}}
-                    value={active.name} onChange={e=>onUpdateGroup(activeId,{name:e.target.value})}/>
+                    width:"100%",color:"var(--navy)",padding:"6px 8px"}}
+                    value={active.name} onChange={e=>onUpdateGroup(activeId,{name:e.target.value})}
+                    placeholder="Group name…"/>
                 </div>
                 <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
                   <input className="inp" style={{flex:1,fontSize:11,padding:"4px 8px",minWidth:100}}
@@ -5341,117 +4593,7 @@ Keep responses concise and actionable. Format with clear sections.`;
 
             <div className="detailSlideBody">
 
-              {/* ── AI assistance panel ── */}
-              <div style={{background:"var(--off)",borderRadius:10,padding:"12px 14px",border:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:10}}>
-                <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,color:"#c96a3a",letterSpacing:".08em"}}>✦ AI ASSISTANCE</div>
 
-                {/* Two options side by side */}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  {/* Enrich with AI */}
-                  <div style={{background:"var(--white)",borderRadius:8,padding:"10px 12px",border:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:6}}>
-                    <div style={{fontSize:12,fontWeight:900,color:"var(--navy)"}}>Enrich with AI</div>
-                    <div style={{fontSize:11,color:"var(--slate2)",lineHeight:1.5,flex:1}}>Uses existing profile data and CIA entries to suggest ADKAR ratings and field content. No additional input needed.</div>
-                    <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 10px",borderColor:"#c96a3a",color:"#c96a3a",display:"flex",alignItems:"center",gap:5,justifyContent:"center"}}
-                      onClick={()=>{ setDrawerAiMode("enrich"); setEnrichDraft(null); setEnrichError(""); runEnrichGroup(activeId); }} disabled={enrichLoading&&drawerAiMode==="enrich"}>
-                      {enrichLoading&&drawerAiMode==="enrich"
-                        ?<><span style={{width:10,height:10,border:"2px solid #c96a3a33",borderTopColor:"#c96a3a",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Working…</>
-                        :"✦ Enrich with AI"}
-                    </button>
-                  </div>
-
-                  {/* Update with AI */}
-                  <div style={{background:"var(--white)",borderRadius:8,padding:"10px 12px",border:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:6}}>
-                    <div style={{fontSize:12,fontWeight:900,color:"var(--navy)"}}>Update with AI</div>
-                    <div style={{fontSize:11,color:"var(--slate2)",lineHeight:1.5,flex:1}}>Paste interview notes, a meeting transcript, or any specific information about this group for higher-fidelity suggestions.</div>
-                    <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 10px",borderColor:"#c96a3a",color:"#c96a3a",display:"flex",alignItems:"center",gap:5,justifyContent:"center"}}
-                      onClick={()=>{ setDrawerAiMode("update"); setEnrichDraft(null); setEnrichError(""); setShowDrawerUpdateInput(v=>!v); }} disabled={enrichLoading&&drawerAiMode==="update"}>
-                      ✦ Update with AI
-                    </button>
-                  </div>
-                </div>
-
-                {/* Update with AI context input */}
-                {showDrawerUpdateInput&&drawerAiMode==="update"&&(
-                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                    <textarea className="inp" style={{width:"100%",minHeight:88,fontSize:12,padding:"8px 10px",lineHeight:1.6,resize:"vertical"}}
-                      value={drawerUpdateContext} onChange={e=>setDrawerUpdateContext(e.target.value)}
-                      placeholder="Paste interview notes, survey results, meeting transcript, or any specific information about this group…"/>
-                    <button className="btn btn-primary" style={{fontSize:11,padding:"6px 16px",alignSelf:"flex-start",display:"flex",alignItems:"center",gap:6}}
-                      onClick={()=>runEnrichGroup(activeId,drawerUpdateContext)} disabled={enrichLoading||!drawerUpdateContext.trim()}>
-                      {enrichLoading&&drawerAiMode==="update"
-                        ?<><span style={{width:10,height:10,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Working…</>
-                        :"✦ Generate suggestions"}
-                    </button>
-                  </div>
-                )}
-
-                {/* Error */}
-                {enrichError&&(
-                  <div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"8px 10px"}}>
-                    {enrichError}
-                  </div>
-                )}
-
-                {/* Draft output — shared by both modes */}
-                {enrichDraft&&enrichDraft.groupId===activeId&&(()=>{
-                  const ADKAR_KEYS=["awareness","desire","knowledge","ability","reinforcement"];
-                  const ADKAR_LABELS={awareness:"Awareness",desire:"Desire",knowledge:"Knowledge",ability:"Ability",reinforcement:"Reinforcement"};
-                  const LC2={High:"#4a9e6a",Medium:"#c48a1a",Low:"#b84040"};
-                  const LB2={High:"#f0f7f2",Medium:"#fdf8ec",Low:"#fdf0f0"};
-                  const textFields=[
-                    {k:"barriersToChange",l:"Barriers to Change"},
-                    {k:"wiifm",l:"WIIFM"},
-                    {k:"resistanceNotes",l:"Resistance Notes"},
-                    {k:"engagementStrategy",l:"Engagement Strategy"},
-                  ].filter(({k})=>enrichDraft[k]);
-                  const adkarSuggestions=ADKAR_KEYS.filter(k=>enrichDraft[k]);
-                  return(
-                    <div style={{display:"flex",flexDirection:"column",gap:10,borderTop:"1px solid var(--border)",paddingTop:10}}>
-                      <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em"}}>SUGGESTIONS — review before applying</div>
-                      {enrichDraft.rationale&&(
-                        <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.6,background:"var(--white)",borderRadius:8,padding:"9px 11px",borderLeft:"3px solid #c96a3a"}}>
-                          {enrichDraft.rationale}
-                        </div>
-                      )}
-                      {adkarSuggestions.length>0&&(
-                        <div>
-                          <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",marginBottom:6}}>ADKAR RATINGS</div>
-                          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                            {adkarSuggestions.map(k=>(
-                              <span key={k} style={{fontSize:11,fontWeight:900,fontFamily:"var(--mono)",
-                                color:LC2[enrichDraft[k]],background:LB2[enrichDraft[k]],
-                                borderRadius:6,padding:"3px 9px",border:`1px solid ${LC2[enrichDraft[k]]}44`}}>
-                                {ADKAR_LABELS[k][0]}: {enrichDraft[k]}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {textFields.length>0&&(
-                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                          <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",letterSpacing:".06em"}}>TEXT FIELDS</div>
-                          {textFields.map(({k,l})=>(
-                            <div key={k} style={{background:"var(--white)",borderRadius:8,padding:"8px 10px",border:"1px solid var(--border)"}}>
-                              <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"var(--slate2)",marginBottom:3}}>{l.toUpperCase()}</div>
-                              <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.55}}>{enrichDraft[k]}</div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div style={{display:"flex",gap:8}}>
-                        <button className="btn btn-primary" style={{fontSize:11,padding:"6px 14px"}}
-                          onClick={()=>applyEnrichDraft(activeId,enrichDraft)}>
-                          ✓ Apply suggestions
-                        </button>
-                        <button className="btn btn-ghost" style={{fontSize:11,padding:"6px 12px"}}
-                          onClick={()=>{setEnrichDraft(null);setEnrichError("");setShowDrawerUpdateInput(false);setDrawerUpdateContext("");}}>
-                          Dismiss
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
               {ciaFor(activeId).length>0&&(
                 <div style={{background:"var(--off2)",borderRadius:10,padding:"10px 12px"}}>
                   <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,color:"var(--slate2)",letterSpacing:".08em",marginBottom:8}}>CIA IMPACTS</div>
@@ -6352,6 +5494,264 @@ Return ONLY the recommendation text. No preamble, no headers.`;
     setPulseRec(prev=>({...prev,[obs.id]:{...prev[obs.id],applied:true}}));
   };
 
+  // ── Unified AI Panel ──
+  const [aiPanelOpen,setAiPanelOpen]=useState(false);
+  const [aiPanelContext,setAiPanelContext]=useState("");
+  const [aiPanelNote,setAiPanelNote]=useState("");
+  const [aiPanelModules,setAiPanelModules]=useState({cia:true,sa:true,map:true});
+  const [aiPanelLoading,setAiPanelLoading]=useState(false);
+  const [aiPanelError,setAiPanelError]=useState("");
+  const [aiPanelSuggestions,setAiPanelSuggestions]=useState(null); // {cia:[...],sa:[...],map:[...]}
+  const aiPanelRef=useRef(null);
+
+  useEffect(()=>{
+    if(!aiPanelOpen) return;
+    const handler=(e)=>{ if(aiPanelRef.current&&!aiPanelRef.current.contains(e.target)) setAiPanelOpen(false); };
+    document.addEventListener("mousedown",handler);
+    return()=>document.removeEventListener("mousedown",handler);
+  },[aiPanelOpen]);
+
+  const runUnifiedAi=async()=>{
+    if(!aiPanelContext.trim()){setAiPanelError("Please paste or type some information first.");return;}
+    setAiPanelLoading(true);setAiPanelError("");setAiPanelSuggestions(null);
+
+    const snap=stage4Snap||{};
+    const tasks=snap.tasks||{};
+    const goLiveDate=snap.goLiveDate||initGoLiveDate||"";
+    const rag=snap.rag||initRag||"none";
+
+    // Build project context summary
+    const projectSummary=`PROJECT: ${project.name}
+TIER: ${tier}
+GO-LIVE: ${goLiveDate||"Not set"}
+RAG: ${rag}
+DESCRIPTION: ${project.description?project.description.slice(0,800):"Not provided"}`;
+
+    const ciaSummary=ciaEntries.length>0
+      ?ciaEntries.map(e=>`${e.id}: ${e.title||"Untitled"} | ${e.magnitude||"?"} magnitude | Groups: ${(e.impactedGroups||[]).map(id=>stakeholderGroups.find(g=>g.id===id)?.name||id).join(", ")||"none"} | ${e.description||""}`).join("\n")
+      :"No CIA entries yet.";
+
+    const saSummary=stakeholderGroups.length>0
+      ?stakeholderGroups.map(g=>{
+        const row=stakeholderRows.find(r=>r.groupId===g.id)||{};
+        return g.id+": "+g.name+" | "+g.department+" | Disposition: "+(g.disposition||"?")+
+          " | ADKAR: A="+(row.awareness||"?")+
+          " D="+(row.desire||"?")+
+          " K="+(row.knowledge||"?")+
+          " Ab="+(row.ability||"?")+
+          " R="+(row.reinforcement||"?")+
+          " | Barriers: "+(row.barriersToChange||"none");
+      }).join("\n")
+      :"No stakeholder groups yet.";
+
+    const allTasks=[];
+    Object.entries(tasks).forEach(([lane,phases])=>{
+      Object.entries(phases||{}).forEach(([phase,arr])=>{
+        (arr||[]).forEach(t=>allTasks.push({...t,lane,phase}));
+      });
+    });
+    const mapSummary=allTasks.length>0
+      ?allTasks.slice(0,20).map(t=>t.lane+"/"+t.phase+": "+t.label+" ["+t.status+"]").join("\n")
+      :"No map tasks yet.";
+
+    const selectedModules=Object.entries(aiPanelModules).filter(([,v])=>v).map(([k])=>k);
+
+    const prompt=`You are an expert OCM strategist acting as an intelligent project assistant. A practitioner has provided new information and wants you to analyze it against their current project data and suggest specific updates.
+
+${projectSummary}
+
+NEW INFORMATION FROM PRACTITIONER:
+${aiPanelContext.slice(0,3000)}
+${aiPanelNote.trim()?"PRACTITIONER NOTE: "+aiPanelNote:""}
+
+CURRENT PROJECT DATA:
+
+CHANGE IMPACT ANALYSIS:
+${ciaSummary}
+
+STAKEHOLDER ASSESSMENT:
+${saSummary}
+
+READINESS MAP (sample):
+${mapSummary}
+
+SELECTED MODULES TO UPDATE: ${selectedModules.join(", ")}
+
+Analyze the new information against the existing project data. Determine what it means for this project and suggest specific, actionable updates. Think like an experienced OCM practitioner — identify what has changed, what gaps the new information reveals, and what needs to be updated or added.
+
+Return ONLY valid JSON with this structure:
+{
+  "interpretation": "2-3 sentence plain-language summary of what the new information means for this project",
+  "cia": [
+    {
+      "action": "add" or "update",
+      "entryId": "existing entry ID if action is update, null if add",
+      "title": "change title",
+      "description": "what is changing and what people will experience",
+      "currentState": "how things work today",
+      "futureState": "how things will work after the change",
+      "magnitude": "High or Medium or Low",
+      "impactTypes": ["Process", "Tool/Technology", "Role", "Policy", "Behavior", "Reporting", "Org Structure"],
+      "implications": "people-side implications and what practitioners need to plan for",
+      "rationale": "why this suggestion is warranted by the new information"
+    }
+  ],
+  "sa": [
+    {
+      "action": "add" or "update",
+      "groupId": "existing group ID if action is update, null if add",
+      "groupName": "group name",
+      "department": "department if identifiable",
+      "disposition": "Supportive or Neutral or Resistant or Unknown",
+      "awareness": "High or Medium or Low or empty string",
+      "desire": "High or Medium or Low or empty string",
+      "knowledge": "High or Medium or Low or empty string",
+      "ability": "High or Medium or Low or empty string",
+      "reinforcement": "High or Medium or Low or empty string",
+      "barriersToChange": "suggested barrier text or empty string",
+      "wiifm": "suggested WIIFM text or empty string",
+      "rationale": "why this suggestion is warranted by the new information"
+    }
+  ],
+  "map": [
+    {
+      "action": "add",
+      "lane": "workstream name — must match an existing lane exactly",
+      "phase": "phase name — must match an existing phase exactly",
+      "label": "task label under 7 words",
+      "detail": "2-3 sentence task description",
+      "rationale": "why this task is warranted by the new information"
+    }
+  ]
+}
+
+Rules:
+- Only include suggestions that are genuinely warranted by the new information
+- Only include modules in your response that were selected: ${selectedModules.join(", ")}
+- For modules not selected, return an empty array
+- SA suggestions must reference groups by real names from the new information or existing groups
+- Map task lanes and phases must exactly match existing ones: Lanes: ${(snap.lanes||initLanes||[]).join(", ")} | Phases: ${(snap.phases||initPhases||[]).join(", ")}
+- Be specific — use real names, systems, and groups from the new information
+- Return empty arrays for modules where no updates are warranted`;
+
+    try{
+      const res=await fetch("/api/claude",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-5",
+          max_tokens:4000,
+          system:"You are an expert OCM strategist. Return ONLY valid JSON — no markdown, no explanation, no backticks. Never truncate.",
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e?.error||"HTTP "+res.status);}
+      const data=await res.json();
+      const raw=(data.content||[]).map(c=>c.text||"").join("").trim()
+        .replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
+      const parsed=JSON.parse(raw);
+      // Add review state to each suggestion
+      const withState=(arr,module)=>(arr||[]).map((s,i)=>({
+        ...s,
+        _id:module+"_"+Date.now()+"_"+i,
+        _accepted:false,
+        _dismissed:false,
+        _editing:false,
+      }));
+      setAiPanelSuggestions({
+        interpretation:parsed.interpretation||"",
+        cia:withState(parsed.cia,"cia"),
+        sa:withState(parsed.sa,"sa"),
+        map:withState(parsed.map,"map"),
+      });
+    }catch(e){
+      setAiPanelError("Analysis failed: "+e.message);
+    }
+    setAiPanelLoading(false);
+  };
+
+  const acceptAiSuggestion=(module,suggestion)=>{
+    if(module==="cia"){
+      if(suggestion.action==="add"){
+        addCiaEntryWithData({
+          title:suggestion.title||"",
+          description:suggestion.description||"",
+          currentState:suggestion.currentState||"",
+          futureState:suggestion.futureState||"",
+          magnitude:suggestion.magnitude||"",
+          impactTypes:suggestion.impactTypes||[],
+          implications:suggestion.implications||"",
+        });
+      } else if(suggestion.action==="update"&&suggestion.entryId){
+        const patch={};
+        if(suggestion.title) patch.title=suggestion.title;
+        if(suggestion.description) patch.description=suggestion.description;
+        if(suggestion.currentState) patch.currentState=suggestion.currentState;
+        if(suggestion.futureState) patch.futureState=suggestion.futureState;
+        if(suggestion.magnitude) patch.magnitude=suggestion.magnitude;
+        if(suggestion.impactTypes?.length) patch.impactTypes=suggestion.impactTypes;
+        if(suggestion.implications) patch.implications=suggestion.implications;
+        updateCia(suggestion.entryId,patch);
+      }
+    } else if(module==="sa"){
+      if(suggestion.action==="add"){
+        const newId=addGroup(suggestion.groupName||"New Group");
+        if(suggestion.department||suggestion.disposition)
+          updateGroup(newId,{department:suggestion.department||"",disposition:suggestion.disposition||""});
+        const rowPatch={};
+        ["awareness","desire","knowledge","ability","reinforcement","barriersToChange","wiifm"]
+          .forEach(k=>{if(suggestion[k]) rowPatch[k]=suggestion[k];});
+        if(Object.keys(rowPatch).length) updateSaRow(newId,rowPatch);
+      } else if(suggestion.action==="update"&&suggestion.groupId){
+        const grpPatch={};
+        if(suggestion.disposition) grpPatch.disposition=suggestion.disposition;
+        if(suggestion.department) grpPatch.department=suggestion.department;
+        if(Object.keys(grpPatch).length) updateGroup(suggestion.groupId,grpPatch);
+        const rowPatch={};
+        ["awareness","desire","knowledge","ability","reinforcement","barriersToChange","wiifm"]
+          .forEach(k=>{if(suggestion[k]) rowPatch[k]=suggestion[k];});
+        if(Object.keys(rowPatch).length) updateSaRow(suggestion.groupId,rowPatch);
+      }
+    } else if(module==="map"){
+      // Add task to the appropriate lane/phase in stage4Snap tasks
+      if(stage4Snap&&suggestion.lane&&suggestion.phase){
+        const updatedTasks=JSON.parse(JSON.stringify(stage4Snap.tasks||{}));
+        if(!updatedTasks[suggestion.lane]) updatedTasks[suggestion.lane]={};
+        if(!updatedTasks[suggestion.lane][suggestion.phase]) updatedTasks[suggestion.lane][suggestion.phase]=[];
+        updatedTasks[suggestion.lane][suggestion.phase].push({
+          label:suggestion.label||"New Task",
+          status:"blue",
+          detail:suggestion.detail||"",
+          owner:"",links:[],blocks:[],blockedBy:[],
+        });
+        setStage4Snap(prev=>({...prev,tasks:updatedTasks}));
+      }
+    }
+    setAiPanelSuggestions(prev=>({
+      ...prev,
+      [module]:prev[module].map(s=>s._id===suggestion._id?{...s,_accepted:true}:s),
+    }));
+  };
+
+  const dismissAiSuggestion=(module,id)=>{
+    setAiPanelSuggestions(prev=>({
+      ...prev,
+      [module]:prev[module].map(s=>s._id===id?{...s,_dismissed:true}:s),
+    }));
+  };
+
+  const acceptAllInModule=(module)=>{
+    const suggestions=aiPanelSuggestions?.[module]||[];
+    suggestions.filter(s=>!s._accepted&&!s._dismissed).forEach(s=>acceptAiSuggestion(module,s));
+  };
+
+  const updateSuggestionField=(module,id,field,value)=>{
+    setAiPanelSuggestions(prev=>({
+      ...prev,
+      [module]:prev[module].map(s=>s._id===id?{...s,[field]:value}:s),
+    }));
+  };
+
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
       {/* ── Top nav ── */}
@@ -6515,6 +5915,288 @@ Return ONLY the recommendation text. No preamble, no headers.`;
                 <div style={{padding:"10px 14px",borderTop:"1px solid var(--border)",flexShrink:0,
                   fontSize:10,fontFamily:"var(--mono)",color:"var(--slate2)",letterSpacing:".04em"}}>
                   PULSE updates automatically · Recommendations use Claude Sonnet
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!viewOnly&&(
+          <div style={{position:"relative"}} ref={aiPanelRef}>
+            <button
+              className="navTab"
+              style={{fontSize:11,fontFamily:"var(--mono)",fontWeight:900,letterSpacing:".06em",gap:6,
+                color:aiPanelOpen?"#c96a3a":"#b8a898",
+                background:aiPanelOpen?"rgba(201,106,58,.08)":"transparent"}}
+              onClick={()=>setAiPanelOpen(v=>!v)}
+              title="Unified AI — bring new information to update your project"
+            >
+              ✦ AI
+            </button>
+
+            {/* ── Unified AI Panel tray ── */}
+            {aiPanelOpen&&(
+              <div style={{
+                position:"absolute",top:"calc(100% + 8px)",right:0,
+                width:520,maxHeight:600,
+                background:"var(--white)",border:"1px solid var(--border)",
+                borderRadius:14,boxShadow:"0 8px 32px rgba(28,20,10,.16)",
+                zIndex:2000,display:"flex",flexDirection:"column",overflow:"hidden",
+              }}>
+                {/* Header */}
+                <div style={{padding:"14px 16px",borderBottom:"1px solid var(--border)",
+                  display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+                  <div>
+                    <div style={{fontFamily:"var(--serif)",fontSize:15,fontWeight:800,color:"var(--navy)"}}>✦ AI Assistant</div>
+                    <div style={{fontSize:11,color:"var(--slate2)",marginTop:2}}>Bring new information — Pulse will decide what it means and suggest updates</div>
+                  </div>
+                  <button className="iconBtn" onClick={()=>setAiPanelOpen(false)}>✕</button>
+                </div>
+
+                <div style={{overflowY:"auto",flex:1,padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
+
+                  {/* Input area */}
+                  {!aiPanelSuggestions&&(
+                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                      <div>
+                        <label style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:5}}>
+                          NEW INFORMATION
+                        </label>
+                        <textarea className="inp" style={{width:"100%",minHeight:120,fontSize:12,padding:"9px 11px",lineHeight:1.6,resize:"vertical"}}
+                          value={aiPanelContext} onChange={e=>setAiPanelContext(e.target.value)}
+                          placeholder="Paste interview notes, a revised scope document, meeting minutes, stakeholder feedback, or any new information about the project…"/>
+                      </div>
+                      <div>
+                        <label style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:5}}>
+                          ADDITIONAL NOTE <span style={{fontWeight:400,textTransform:"none",letterSpacing:0}}>(optional)</span>
+                        </label>
+                        <input className="inp" style={{width:"100%",fontSize:12,padding:"8px 11px"}}
+                          value={aiPanelNote} onChange={e=>setAiPanelNote(e.target.value)}
+                          placeholder="e.g. Notes from Finance stakeholder interview, Updated scope doc…"/>
+                      </div>
+                      <div>
+                        <label style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em",display:"block",marginBottom:8}}>
+                          MODULES TO CONSIDER
+                        </label>
+                        <div style={{display:"flex",gap:8}}>
+                          {[["cia","Change Impact Analysis"],["sa","Stakeholder Assessment"],["map","Readiness Map"]].map(([key,label])=>(
+                            <label key={key} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",
+                              borderRadius:20,cursor:"pointer",border:"1.5px solid",
+                              borderColor:aiPanelModules[key]?"#c96a3a":"var(--border)",
+                              background:aiPanelModules[key]?"#fdf3ec":"transparent",
+                              fontSize:12,fontWeight:aiPanelModules[key]?700:400,
+                              color:aiPanelModules[key]?"#c96a3a":"var(--slate)"}}>
+                              <input type="checkbox" checked={aiPanelModules[key]}
+                                onChange={e=>setAiPanelModules(prev=>({...prev,[key]:e.target.checked}))}
+                                style={{display:"none"}}/>
+                              {aiPanelModules[key]?"✓ ":""}{label}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      {aiPanelError&&(
+                        <div style={{fontSize:12,color:"#b84040",background:"#fdf0f0",border:"1px solid #f0c0c0",borderRadius:8,padding:"9px 12px"}}>
+                          {aiPanelError}
+                        </div>
+                      )}
+                      <button className="btn btn-primary" style={{alignSelf:"flex-start",fontSize:13,padding:"9px 22px",display:"flex",alignItems:"center",gap:8}}
+                        onClick={runUnifiedAi} disabled={aiPanelLoading||!aiPanelContext.trim()}>
+                        {aiPanelLoading
+                          ?<><span style={{width:13,height:13,border:"2px solid rgba(255,255,255,.4)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/> Analyzing…</>
+                          :"✦ Analyze & Suggest Updates"}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Results */}
+                  {aiPanelSuggestions&&(
+                    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                      {/* Interpretation */}
+                      {aiPanelSuggestions.interpretation&&(
+                        <div style={{background:"#f0f7f2",border:"1px solid #a8d8b8",borderRadius:10,padding:"12px 14px",borderLeft:"3px solid #4a9e6a"}}>
+                          <div style={{fontFamily:"var(--mono)",fontSize:9,fontWeight:900,color:"#4a9e6a",letterSpacing:".06em",marginBottom:5}}>PULSE INTERPRETATION</div>
+                          <div style={{fontSize:12,color:"var(--navy)",lineHeight:1.6}}>{aiPanelSuggestions.interpretation}</div>
+                        </div>
+                      )}
+
+                      {/* Module groups */}
+                      {[
+                        {key:"cia",label:"Change Impact Analysis",color:"#b84040",bg:"#fdf0f0",bdr:"#f0c0c0"},
+                        {key:"sa",label:"Stakeholder Assessment",color:"#5a7aae",bg:"#f0f4fd",bdr:"#b0c8e8"},
+                        {key:"map",label:"Readiness Map",color:"#c96a3a",bg:"#fdf3ec",bdr:"#f0d0b8"},
+                      ].map(({key,label,color,bg,bdr})=>{
+                        const suggestions=(aiPanelSuggestions[key]||[]).filter(s=>!s._dismissed);
+                        if(suggestions.length===0) return null;
+                        const pending=suggestions.filter(s=>!s._accepted);
+                        return(
+                          <div key={key} style={{border:"1px solid "+bdr,borderRadius:10,overflow:"hidden"}}>
+                            {/* Module header */}
+                            <div style={{background:bg,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                              <div style={{fontFamily:"var(--mono)",fontSize:10,fontWeight:900,color,letterSpacing:".06em"}}>
+                                {label.toUpperCase()} — {suggestions.length} suggestion{suggestions.length!==1?"s":""}
+                              </div>
+                              {pending.length>0&&(
+                                <button className="btn btn-ghost" style={{fontSize:11,padding:"3px 10px",borderColor:color,color}}
+                                  onClick={()=>acceptAllInModule(key)}>
+                                  ✓ Accept All
+                                </button>
+                              )}
+                            </div>
+                            {/* Suggestions */}
+                            <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                              {suggestions.map((s,si)=>(
+                                <div key={s._id} style={{
+                                  padding:"12px 14px",
+                                  borderTop:si>0?"1px solid var(--border)":"none",
+                                  background:s._accepted?"#f0f7f2":"var(--white)",
+                                  opacity:s._accepted?0.7:1,
+                                }}>
+                                  <div style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:s._editing?8:0}}>
+                                    <div style={{flex:1,minWidth:0}}>
+                                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                                        <span style={{fontSize:10,fontWeight:900,fontFamily:"var(--mono)",
+                                          color:s.action==="add"?"#4a9e6a":"#c96a3a",
+                                          background:s.action==="add"?"#f0f7f2":"#fdf3ec",
+                                          borderRadius:4,padding:"1px 6px"}}>
+                                          {s.action==="add"?"+ ADD":"~ UPDATE"}
+                                        </span>
+                                        <div style={{fontSize:13,fontWeight:700,color:"var(--navy)"}}>
+                                          {key==="cia"?s.title:key==="sa"?s.groupName:s.label}
+                                        </div>
+                                      </div>
+                                      <div style={{fontSize:11,color:"var(--slate)",lineHeight:1.5,marginBottom:4}}>
+                                        {key==="cia"?s.description:key==="sa"?("Disposition: "+(s.disposition||"?")+
+                                          " | ADKAR: "+["awareness","desire","knowledge","ability","reinforcement"].map(k=>k[0].toUpperCase()+"="+(s[k]||"?")).join(" ")):
+                                          (s.lane+" / "+s.phase)}
+                                      </div>
+                                      <div style={{fontSize:11,color:"var(--slate2)",lineHeight:1.45,fontStyle:"italic"}}>
+                                        {s.rationale}
+                                      </div>
+                                    </div>
+                                    <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+                                      {!s._accepted&&(
+                                        <>
+                                          <button className="btn btn-primary" style={{fontSize:11,padding:"4px 10px"}}
+                                            onClick={()=>acceptAiSuggestion(key,s)}>✓ Accept</button>
+                                          <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px"}}
+                                            onClick={()=>setAiPanelSuggestions(prev=>({...prev,[key]:prev[key].map(x=>x._id===s._id?{...x,_editing:!x._editing}:x)}))}>
+                                            ✏ Edit
+                                          </button>
+                                          <button className="btn btn-ghost" style={{fontSize:11,padding:"4px 10px",color:"var(--slate2)"}}
+                                            onClick={()=>dismissAiSuggestion(key,s._id)}>Dismiss</button>
+                                        </>
+                                      )}
+                                      {s._accepted&&<span style={{fontSize:11,fontWeight:900,color:"#4a9e6a",padding:"4px 0"}}>✓ Applied</span>}
+                                    </div>
+                                  </div>
+                                  {/* Edit panel */}
+                                  {s._editing&&!s._accepted&&(
+                                    <div style={{background:"var(--off)",borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8,marginTop:8}}>
+                                      <div style={{fontSize:10,fontFamily:"var(--mono)",fontWeight:900,color:"var(--slate2)",letterSpacing:".06em"}}>EDIT BEFORE ACCEPTING</div>
+                                      {key==="cia"&&(
+                                        <>
+                                          <div>
+                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Title</div>
+                                            <input className="inp" style={{width:"100%",fontSize:12,padding:"6px 8px"}}
+                                              value={s.title||""} onChange={e=>updateSuggestionField(key,s._id,"title",e.target.value)}/>
+                                          </div>
+                                          <div>
+                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Description</div>
+                                            <textarea className="inp" style={{width:"100%",minHeight:60,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
+                                              value={s.description||""} onChange={e=>updateSuggestionField(key,s._id,"description",e.target.value)}/>
+                                          </div>
+                                          <div style={{display:"flex",gap:8}}>
+                                            <div style={{flex:1}}>
+                                              <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Magnitude</div>
+                                              <select className="inp" style={{width:"100%",fontSize:12,padding:"5px 8px"}}
+                                                value={s.magnitude||""} onChange={e=>updateSuggestionField(key,s._id,"magnitude",e.target.value)}>
+                                                <option value="">—</option>
+                                                <option value="High">High</option>
+                                                <option value="Medium">Medium</option>
+                                                <option value="Low">Low</option>
+                                              </select>
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>People-side Implications</div>
+                                            <textarea className="inp" style={{width:"100%",minHeight:56,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
+                                              value={s.implications||""} onChange={e=>updateSuggestionField(key,s._id,"implications",e.target.value)}/>
+                                          </div>
+                                        </>
+                                      )}
+                                      {key==="sa"&&(
+                                        <>
+                                          <div>
+                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Group Name</div>
+                                            <input className="inp" style={{width:"100%",fontSize:12,padding:"6px 8px"}}
+                                              value={s.groupName||""} onChange={e=>updateSuggestionField(key,s._id,"groupName",e.target.value)}/>
+                                          </div>
+                                          <div style={{display:"flex",gap:8}}>
+                                            <div style={{flex:1}}>
+                                              <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Disposition</div>
+                                              <select className="inp" style={{width:"100%",fontSize:12,padding:"5px 8px"}}
+                                                value={s.disposition||""} onChange={e=>updateSuggestionField(key,s._id,"disposition",e.target.value)}>
+                                                <option value="">—</option>
+                                                {["Supportive","Neutral","Resistant","Unknown"].map(d=><option key={d} value={d}>{d}</option>)}
+                                              </select>
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Barriers to Change</div>
+                                            <textarea className="inp" style={{width:"100%",minHeight:52,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
+                                              value={s.barriersToChange||""} onChange={e=>updateSuggestionField(key,s._id,"barriersToChange",e.target.value)}/>
+                                          </div>
+                                          <div>
+                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>WIIFM</div>
+                                            <textarea className="inp" style={{width:"100%",minHeight:52,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
+                                              value={s.wiifm||""} onChange={e=>updateSuggestionField(key,s._id,"wiifm",e.target.value)}/>
+                                          </div>
+                                        </>
+                                      )}
+                                      {key==="map"&&(
+                                        <>
+                                          <div>
+                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Task Label</div>
+                                            <input className="inp" style={{width:"100%",fontSize:12,padding:"6px 8px"}}
+                                              value={s.label||""} onChange={e=>updateSuggestionField(key,s._id,"label",e.target.value)}/>
+                                          </div>
+                                          <div>
+                                            <div style={{fontSize:11,fontWeight:700,color:"var(--slate)",marginBottom:3}}>Detail</div>
+                                            <textarea className="inp" style={{width:"100%",minHeight:60,fontSize:12,padding:"6px 8px",lineHeight:1.5}}
+                                              value={s.detail||""} onChange={e=>updateSuggestionField(key,s._id,"detail",e.target.value)}/>
+                                          </div>
+                                        </>
+                                      )}
+                                      <div style={{display:"flex",gap:8}}>
+                                        <button className="btn btn-primary" style={{fontSize:11,padding:"5px 14px"}}
+                                          onClick={()=>acceptAiSuggestion(key,s)}>✓ Accept</button>
+                                        <button className="btn btn-ghost" style={{fontSize:11,padding:"5px 12px"}}
+                                          onClick={()=>setAiPanelSuggestions(prev=>({...prev,[key]:prev[key].map(x=>x._id===s._id?{...x,_editing:false}:x)}))}>
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Start over */}
+                      <button className="btn btn-ghost" style={{alignSelf:"flex-start",fontSize:12}}
+                        onClick={()=>{setAiPanelSuggestions(null);setAiPanelContext("");setAiPanelNote("");setAiPanelError("");}}>
+                        ↺ Start over with new information
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div style={{padding:"10px 14px",borderTop:"1px solid var(--border)",flexShrink:0,
+                  fontSize:10,fontFamily:"var(--mono)",color:"var(--slate2)",letterSpacing:".04em"}}>
+                  Powered by Claude Sonnet · Nothing applies until you accept
                 </div>
               </div>
             )}
